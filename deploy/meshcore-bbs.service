@@ -1,0 +1,60 @@
+[Unit]
+Description=MeshCore BBS
+Documentation=https://github.com/your-org/meshcore-bbs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# User and group must have read/write access to /var/lib/meshcore-bbs and
+# to the serial device (typically dialout group on Debian/Ubuntu).
+User=meshcore-bbs
+Group=meshcore-bbs
+SupplementaryGroups=dialout
+
+WorkingDirectory=/opt/meshcore-bbs
+
+ExecStart=/opt/meshcore-bbs/.venv/bin/python -m bbs \
+    --config /var/lib/meshcore-bbs/config.yaml \
+    --db /var/lib/meshcore-bbs/bbs.db
+
+# SIGHUP reloads config in place.
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart aggressively on crash but back off if it keeps happening.
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# 30 second grace period for the outbound queue to drain on shutdown.
+TimeoutStopSec=45
+KillSignal=SIGTERM
+
+# Hardening — narrow the filesystem and capability surface.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=false
+DeviceAllow=/dev/ttyUSB0 rw
+DeviceAllow=/dev/ttyACM0 rw
+ReadWritePaths=/var/lib/meshcore-bbs
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+# Resource limits — generous for a small async Python process.
+MemoryMax=512M
+TasksMax=64
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

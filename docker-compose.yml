@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+  meshcore-bbs:
+    build: .
+    image: meshcore-bbs:latest
+    container_name: meshcore-bbs
+    restart: unless-stopped
+
+    # Map the companion's stable USB-serial path to /dev/ttyUSB0 inside the
+    # container. Find the host path with:
+    #   ls -l /dev/serial/by-id/
+    # Then update the LEFT side of this mapping. The RIGHT side stays as
+    # /dev/ttyUSB0 because that's what config.yaml refers to.
+    devices:
+      - "/dev/serial/by-id/REPLACE_WITH_YOUR_DEVICE:/dev/ttyUSB0"
+
+    # `dialout` group on most Debian-family hosts. If your host uses a
+    # different GID, override here.
+    group_add:
+      - dialout
+
+    volumes:
+      # config + DB + logs
+      - ./data:/data
+      # If using Unraid, swap for:
+      # - /mnt/user/appdata/meshcore-bbs:/data
+
+    ports:
+      - "8080:8080"   # health
+      # - "9090:9090" # metrics (uncomment if metrics.enabled: true)
+
+    environment:
+      BBS_CONFIG: /data/config.yaml
+      BBS_DB: /data/bbs.db
+
+    # Match the in-Dockerfile HEALTHCHECK in case the image was rebuilt without it.
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

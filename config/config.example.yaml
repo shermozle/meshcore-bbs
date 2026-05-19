@@ -1,0 +1,75 @@
+# MeshCore BBS configuration.
+# Copy to config.yaml and edit. Never check the real config.yaml into git.
+
+device:
+  # Use a stable /dev/serial/by-id/... path on the host; the container should
+  # have it bind-mounted to /dev/ttyUSB0.
+  serial_path: /dev/ttyUSB0
+  baud: 115200
+  # Optional sanity check. If set, BBS will refuse to start if the connected
+  # companion's pubkey doesn't match (prevents talking to the wrong device).
+  expected_pubkey: ""
+
+bbs:
+  name: "MyBBS"
+  motd: "Welcome! Try HELP."
+  # Full hex Curve25519 pubkeys of users who may run ADMIN commands.
+  admin_pubkeys: []
+  # Default location used by WX when no argument is given.
+  default_location: "Sydney"
+  # Max chars accepted for a board POST or mail SEND body.
+  max_msg_chars: 200
+
+limits:
+  inbound_per_hour: 20
+  inbound_per_minute: 5
+  post_per_hour: 5
+  post_per_day: 20
+  mail_send_per_day: 10
+  # Minimum gap between consecutive outbound sends (any recipient).
+  outbound_min_interval_ms: 1000
+  # Minimum gap between outbound sends to the same recipient.
+  outbound_per_recipient_min_interval_ms: 3000
+  # If the outbound queue grows beyond this, refuse new low-priority enqueues.
+  outbound_queue_max_depth: 100
+
+news:
+  feeds:
+    - slug: abc
+      url: https://www.abc.net.au/news/feed/45910/rss.xml
+    - slug: bom_warnings
+      url: http://www.bom.gov.au/fwo/IDZ00056.warnings_nsw.xml
+  max_items_per_feed: 50
+  refresh_interval_seconds: 900
+
+weather:
+  bom_station: "IDN60901.94768"  # Sydney
+  user_agent: "meshcore-bbs/0.1 (admin@example.com)"
+  cache_observation_seconds: 600
+  cache_forecast_seconds: 3600
+
+contacts:
+  # Prune contacts not seen in this many days.
+  prune_after_days: 30
+
+mail:
+  # Push a "you have mail" notification if the recipient has DM'd the BBS
+  # within this many seconds.
+  online_threshold_seconds: 900
+  # Minimum gap between mail-notifications to a given recipient.
+  notify_min_interval_seconds: 600
+  # Hard-delete read mail after this many days. 0 = retain indefinitely.
+  read_retention_days: 90
+
+health:
+  http_host: "0.0.0.0"
+  http_port: 8080
+
+metrics:
+  enabled: false
+  http_host: "0.0.0.0"
+  http_port: 9090
+
+logging:
+  level: INFO
+  path: /data/bbs.log

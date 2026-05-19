@@ -1,0 +1,86 @@
+"""In-memory mock transport.
+
+Used by integration tests (and `python -m bbs --mock` for offline dev). Sent
+messages are recorded; inbound events can be injected via `inject_inbound`.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+from collections import defaultdict
+
+from .base import InboundMessage, SendOutcome, TransportEvent, TransportEventType
+
+
+class MockTransport:
+    def __init__(self, self_pubkey: str = "a" * 64, contact_capacity_max: int = 200) -> None:
+        self._self_pubkey = self_pubkey
+        self._events: asyncio.Queue[TransportEvent] = asyncio.Queue()
+        # Recorded sends for assertions:
+        self.sent: list[tuple[str, str]] = []
+        # When set, send_msg returns this for the matching recipient pubkey.
+        self.next_send_outcome: dict[str, SendOutcome] = defaultdict(lambda: SendOutcome.OK)
+        self._contact_pubkeys: set[str] = set()
+        self._contact_capacity = contact_capacity_max
+        self._started = False
+        self._stopped = False
+
+    @property
+    def self_pubkey(self) -> str:
+        return self._self_pubkey
+
+    async def start(self) -> None:
+        self._started = True
+        await self._events.put(TransportEvent(type=TransportEventType.CONNECTED))
+
+    async def stop(self) -> None:
+        self._stopped = True
+        await self._events.put(TransportEvent(type=TransportEventType.DISCONNECTED))
+
+    async def send_msg(self, to_pubkey: str, body: str) -> SendOutcome:
+        self.sent.append((to_pubkey, body))
+        return self.next_send_outcome[to_pubkey]
+
+    def events(self) -> asyncio.Queue[TransportEvent]:
+        return self._events
+
+    async def sync_time(self, epoch: int) -> None:
+        return None
+
+    async def contact_capacity(self) -> tuple[int, int]:
+        return (len(self._contact_pubkeys), self._contact_capacity)
+
+    async def prune_contact(self, pubkey: str) -> None:
+        self._contact_pubkeys.discard(pubkey)
+
+    # Test helpers --------------------------------------------------------
+
+    async def inject_inbound(
+        self,
+        pubkey: str,
+        body: str,
+        adv_name: str | None = None,
+        received_at: int | None = None,
+    ) -> None:
+        self._contact_pubkeys.add(pubkey)
+        await self._events.put(
+            TransportEvent(
+                type=TransportEventType.CONTACT_MSG_RECV,
+                inbound=InboundMessage(
+                    pubkey=pubkey,
+                    adv_name=adv_name,
+                    body=body,
+                    received_at=received_at if received_at is not None else int(time.time()),
+                ),
+            )
+        )
+
+    def last_sent_to(self, pubkey: str) -> str | None:
+        for pk, body in reversed(self.sent):
+            if pk == pubkey:
+                return body
+        return None
+
+    def all_sent_to(self, pubkey: str) -> list[str]:
+        return [b for pk, b in self.sent if pk == pubkey]

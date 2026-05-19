@@ -1,0 +1,75 @@
+<?xml version="1.0"?>
+<!--
+  Unraid Community Applications template for meshcore-bbs.
+  Drop this in /boot/config/plugins/dockerMan/templates-user/ on your Unraid box
+  (rename to my-meshcore-bbs.xml), then add the container from the Docker tab.
+
+  Before starting, edit the DEVICE_PATH below to point to your companion's
+  /dev/serial/by-id/... path (run `ls -l /dev/serial/by-id/` on the host).
+-->
+<Container version="2">
+  <Name>meshcore-bbs</Name>
+  <Repository>meshcore-bbs:latest</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project>https://github.com/your-org/meshcore-bbs</Project>
+  <Overview>A bulletin board system reachable over MeshCore mesh DMs. Provides news, weather, message boards, and user-to-user mail to any MeshCore client.</Overview>
+  <Category>Communications:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/health</WebUI>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>--device=/dev/serial/by-id/REPLACE_ME:/dev/ttyUSB0 --group-add dialout</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Description>A bulletin board system reachable over MeshCore mesh DMs.
+
+Before starting:
+1. Find your companion device path: ls -l /dev/serial/by-id/
+2. Edit the Extra Parameters to use that path
+3. Edit /mnt/user/appdata/meshcore-bbs/config.yaml — at minimum set bbs.admin_pubkeys</Description>
+  <Networking>
+    <Mode>bridge</Mode>
+    <Publish>
+      <Port>
+        <HostPort>8080</HostPort>
+        <ContainerPort>8080</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+      <Port>
+        <HostPort>9090</HostPort>
+        <ContainerPort>9090</ContainerPort>
+        <Protocol>tcp</Protocol>
+      </Port>
+    </Publish>
+  </Networking>
+  <Data>
+    <Volume>
+      <HostDir>/mnt/user/appdata/meshcore-bbs</HostDir>
+      <ContainerDir>/data</ContainerDir>
+      <Mode>rw</Mode>
+    </Volume>
+  </Data>
+  <Environment>
+    <Variable>
+      <Value>/data/config.yaml</Value>
+      <Name>BBS_CONFIG</Name>
+      <Mode/>
+    </Variable>
+    <Variable>
+      <Value>/data/bbs.db</Value>
+      <Name>BBS_DB</Name>
+      <Mode/>
+    </Variable>
+  </Environment>
+  <Labels/>
+  <Config Name="Health WebUI" Target="8080" Default="8080" Mode="tcp" Description="Health endpoint (and root metrics if enabled)" Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="Prometheus Metrics" Target="9090" Default="9090" Mode="tcp" Description="Optional Prometheus scrape port; set metrics.enabled in config.yaml" Type="Port" Display="advanced" Required="false" Mask="false">9090</Config>
+  <Config Name="App data" Target="/data" Default="/mnt/user/appdata/meshcore-bbs" Mode="rw" Description="Persistent storage: config, DB, logs" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/meshcore-bbs</Config>
+</Container>

@@ -1,0 +1,78 @@
+"""Transport interface.
+
+The BBS uses only this surface to talk to MeshCore. The two concrete
+implementations are `MeshCoreTransport` (production) and `MockTransport`
+(tests / dev runs without hardware).
+"""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+from enum import Enum
+from typing import Protocol
+
+
+class TransportEventType(str, Enum):
+    CONNECTED = "connected"
+    DISCONNECTED = "disconnected"
+    CONTACT_MSG_RECV = "contact_msg_recv"
+    NEW_CONTACT = "new_contact"
+    ADVERTISEMENT = "advertisement"
+
+
+@dataclass
+class InboundMessage:
+    """A decrypted DM from a contact.
+
+    `pubkey` is always the full 64-char hex Curve25519 key, resolved by the
+    transport from the wire-level prefix.
+    """
+
+    pubkey: str
+    adv_name: str | None
+    body: str
+    received_at: int
+
+
+@dataclass
+class TransportEvent:
+    type: TransportEventType
+    inbound: InboundMessage | None = None
+    pubkey: str | None = None
+    reconnected: bool = False
+
+
+class SendOutcome(str, Enum):
+    OK = "ok"             # ACK received, message delivered
+    NO_ACK = "no_ack"     # path lost / recipient unreachable
+    ERROR = "error"       # serial/firmware/local error; retry may succeed
+
+
+class Transport(Protocol):
+    """Surface the BBS dispatcher and outbound queue use."""
+
+    @property
+    def self_pubkey(self) -> str: ...
+
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+
+    async def send_msg(self, to_pubkey: str, body: str) -> SendOutcome:
+        """Send a DM. The transport handles ACK-based retry + flood fallback
+        internally; this method returns only the final outcome.
+        """
+        ...
+
+    def events(self) -> asyncio.Queue[TransportEvent]:
+        """Return a queue the dispatcher reads from. Events are pushed by the
+        transport as they arrive from the firmware.
+        """
+        ...
+
+    async def sync_time(self, epoch: int) -> None: ...
+    async def contact_capacity(self) -> tuple[int, int]:
+        """Return (used, capacity)."""
+        ...
+
+    async def prune_contact(self, pubkey: str) -> None: ...
