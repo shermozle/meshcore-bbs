@@ -22,7 +22,7 @@
   <WebUI>http://[IP]:[PORT:8080]/health</WebUI>
   <TemplateURL/>
   <Icon/>
-  <ExtraParams>--device=/dev/serial/by-id/REPLACE_ME:/dev/ttyUSB0 --group-add dialout</ExtraParams>
+  <ExtraParams>--device=/dev/serial/by-id/REPLACE_ME:/dev/ttyACM0 --group-add dialout</ExtraParams>
   <PostArgs/>
   <CPUset/>
   <DateInstalled/>
@@ -32,8 +32,11 @@
 
 Before starting:
 1. Find your companion device path: ls -l /dev/serial/by-id/
-2. Edit the Extra Parameters to use that path
-3. Edit /mnt/user/appdata/meshcore-bbs/config.yaml — at minimum set bbs.admin_pubkeys</Description>
+   ESP32 devices (Heltec V3, T-Deck): path contains "CP2102" or "CH9102", maps to ttyUSB0
+   nRF52840 devices (Heltec T114, RAK4631): path contains "Companion" or "nRF", maps to ttyACM0
+2. Edit Extra Parameters: replace REPLACE_ME with the full /dev/serial/by-id/... path
+3. Copy config: cp /mnt/user/appdata/meshcore-bbs/config.example.yaml /mnt/user/appdata/meshcore-bbs/config.yaml
+4. Edit config.yaml — at minimum set bbs.admin_pubkeys to your MeshCore public key</Description>
   <Networking>
     <Mode>bridge</Mode>
     <Publish>

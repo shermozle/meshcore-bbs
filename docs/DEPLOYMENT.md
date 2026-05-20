@@ -14,22 +14,47 @@ All three require a MeshCore companion device flashed with **companion** firmwar
 
 ### Hardware
 
-- A MeshCore-compatible companion device, e.g. **Heltec V3**, **RAK4631**, or **T-Deck**. Flash with the latest companion firmware.
-- USB cable to the host. Quality matters — a flaky data cable causes intermittent serial drops.
+- A MeshCore-compatible companion device flashed with **companion** firmware (not repeater, not room-server). Supported hardware includes:
+  - **Heltec T114** (nRF52840 + SX1262) — USB-C, presents as `/dev/ttyACM0`, uses CDC ACM (no extra driver needed on Linux 5.x+)
+  - **Heltec V3** (ESP32-S3 + SX1262) — USB-C, CH9102X chip, presents as `/dev/ttyUSB0`
+  - **RAK4631** (nRF52840 + SX1262) — USB-C, CDC ACM, presents as `/dev/ttyACM0`
+  - **T-Deck** (ESP32-S3) — USB-C, presents as `/dev/ttyUSB0`
+- USB cable to the host. Quality matters — a flaky data cable causes intermittent serial drops. Use the cable that shipped with the device or a known-good data cable (not a charge-only cable).
 - A proper external antenna with known-good SWR. The companion sitting inside a server case has terrible range; mount the antenna outside.
+
+#### Heltec T114 notes
+
+The T114 uses the nRF52840 USB CDC ACM interface (no separate USB-serial chip). On Linux 5.x+ no driver installation is needed. The device path will be:
+
+```
+/dev/ttyACM0   (or /dev/ttyACM1 if another ACM device is already present)
+```
+
+The stable by-id path looks like:
+```
+/dev/serial/by-id/usb-Adafruit_nRF_Open_DFU_Bootloader_...-if00
+```
+or when running companion firmware:
+```
+/dev/serial/by-id/usb-MeshCore_Companion_...-if00
+```
+
+Run `ls -l /dev/serial/by-id/` after plugging in to find the exact path. If nothing appears, check `dmesg | tail -20` — you should see a `cdc_acm` line when the device enumerates.
 
 ### Host
 
 - Linux with a working USB stack.
 - Docker 20.10+ (for paths 1 and 2), or Python 3.11+ (for path 3).
-- The companion appearing as `/dev/ttyUSB0` or `/dev/ttyACM0`.
+- The companion appearing as `/dev/ttyUSB0`, `/dev/ttyACM0`, or similar.
 
 ### Verify the companion is reachable
 
 ```bash
 ls -l /dev/serial/by-id/
-# Example output:
+# ESP32-based (Heltec V3, T-Deck):
 # usb-Silicon_Labs_CP2102N_USB_to_UART_Bridge_Controller_abc123-if00-port0 -> ../../ttyUSB0
+# nRF52840-based (Heltec T114, RAK4631):
+# usb-MeshCore_Companion_abc123-if00 -> ../../ttyACM0
 ```
 
 Note the full `/dev/serial/by-id/...` path. Use it everywhere instead of `/dev/ttyUSB0` — the by-id path is stable across reboots and re-plugs.

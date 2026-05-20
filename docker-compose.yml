@@ -7,13 +7,19 @@ services:
     container_name: meshcore-bbs
     restart: unless-stopped
 
-    # Map the companion's stable USB-serial path to /dev/ttyUSB0 inside the
-    # container. Find the host path with:
-    #   ls -l /dev/serial/by-id/
-    # Then update the LEFT side of this mapping. The RIGHT side stays as
-    # /dev/ttyUSB0 because that's what config.yaml refers to.
+    # Map the companion's stable USB-serial path into the container.
+    # Find the host path with:  ls -l /dev/serial/by-id/
+    # Update the LEFT side to your actual by-id path.
+    # The RIGHT side (/dev/ttyUSB0) must match device.serial_path in config.yaml.
+    #
+    # ESP32-based devices (Heltec V3, T-Deck) — typically ttyUSB0:
+    #   - "/dev/serial/by-id/usb-Silicon_Labs_CP2102N_..._-if00-port0:/dev/ttyUSB0"
+    #   Also set serial_path: /dev/ttyUSB0 in config.yaml
+    # nRF52840-based devices (Heltec T114, RAK4631) — typically ttyACM0:
+    #   - "/dev/serial/by-id/usb-MeshCore_Companion_...-if00:/dev/ttyACM0"
+    #   Also set serial_path: /dev/ttyACM0 in config.yaml (already the default)
     devices:
-      - "/dev/serial/by-id/REPLACE_WITH_YOUR_DEVICE:/dev/ttyUSB0"
+      - "/dev/serial/by-id/REPLACE_WITH_YOUR_DEVICE:/dev/ttyACM0"
 
     # `dialout` group on most Debian-family hosts. If your host uses a
     # different GID, override here.

@@ -1,15 +1,12 @@
-"""Real `meshcore_py` transport.
+"""Real `meshcore_py` transport — updated for meshcore 2.3.x API.
 
-This module wraps the meshcore library to present the BBS's `Transport`
-interface. The exact method names below mirror those referenced in the spec
-(`MeshCore.create_serial`, `send_appstart`, `set_time`, `get_contacts`,
-`get_contact_by_key_prefix`, `send_msg_with_retry`, etc.). If the installed
-library version exposes slightly different names, adjust the wrappers here
-and the rest of the application is unaffected.
-
-The transport pushes events onto an asyncio.Queue. The library subscription
-callbacks bridge into that queue; everything downstream of the queue runs in
-normal asyncio task context.
+Key differences from the original spec-based stubs:
+  - All device commands go through self._mc.commands.* (not self._mc.*)
+  - subscribe() takes EventType enum values, not strings
+  - Callbacks receive Event objects; message data is in event.payload
+  - get_contact_by_key_prefix() is a synchronous dict lookup
+  - create_serial() can return None on connection failure
+  - DEVICE_INFO payload has max_contacts (not contact_count/contact_capacity)
 """
 
 from __future__ import annotations
@@ -25,8 +22,7 @@ log = logging.getLogger(__name__)
 
 
 class MeshCoreTransport:
-    """Production transport. Imports `meshcore` lazily so the package is
-    importable for tests in environments without the library."""
+    """Production transport wrapping the meshcore library."""
 
     def __init__(
         self,
@@ -43,7 +39,6 @@ class MeshCoreTransport:
         self._mc: Any = None  # meshcore.MeshCore
         self._events: asyncio.Queue[TransportEvent] = asyncio.Queue()
         self._self_pubkey: str = ""
-        self._contact_cache: dict[str, dict[str, Any]] = {}
 
     @property
     def self_pubkey(self) -> str:
@@ -53,8 +48,8 @@ class MeshCoreTransport:
         return self._events
 
     async def start(self) -> None:
-        # Lazy import so test environments don't need the library installed.
-        from meshcore import MeshCore  # type: ignore[import-not-found]
+        # Lazy imports so test environments don't need the library installed.
+        from meshcore import EventType, MeshCore  # type: ignore[import-not-found]
 
         self._mc = await MeshCore.create_serial(
             self.serial_path,
@@ -62,9 +57,15 @@ class MeshCoreTransport:
             auto_reconnect=True,
             max_reconnect_attempts=self.max_reconnect_attempts,
         )
-        info = await self._mc.send_appstart()
-        # SELF_INFO payload normalisation -- library returns either dict or object.
-        self_pubkey = _pubkey_from_self_info(info)
+        if self._mc is None:
+            raise RuntimeError(
+                f"Failed to connect to companion on {self.serial_path}. "
+                "Check cable, firmware (must be companion, not repeater), "
+                "and that no other process holds the port."
+            )
+
+        # self_info is populated by create_serial() → connect() → send_appstart().
+        self_pubkey = (self._mc.self_info or {}).get("public_key", "")
         if not self_pubkey:
             raise RuntimeError("Could not read self pubkey from companion SELF_INFO")
         self._self_pubkey = self_pubkey.lower()
@@ -75,15 +76,15 @@ class MeshCoreTransport:
                 f"{self.expected_pubkey}; refusing to run"
             )
 
-        await self._mc.set_time(int(time.time()))
-        await self._refresh_contacts()
+        await self._mc.commands.set_time(int(time.time()))
+        await self._mc.ensure_contacts()
 
-        # Subscribe to firmware events.
-        self._mc.subscribe("CONTACT_MSG_RECV", self._on_contact_msg)
-        self._mc.subscribe("NEW_CONTACT", self._on_new_contact)
-        self._mc.subscribe("ADVERTISEMENT", self._on_advertisement)
-        self._mc.subscribe("CONNECTED", self._on_connected)
-        self._mc.subscribe("DISCONNECTED", self._on_disconnected)
+        # Subscribe to firmware events using EventType enums.
+        self._mc.subscribe(EventType.CONTACT_MSG_RECV, self._on_contact_msg)
+        self._mc.subscribe(EventType.NEW_CONTACT, self._on_new_contact)
+        self._mc.subscribe(EventType.ADVERTISEMENT, self._on_advertisement)
+        self._mc.subscribe(EventType.CONNECTED, self._on_connected)
+        self._mc.subscribe(EventType.DISCONNECTED, self._on_disconnected)
 
         await self._mc.start_auto_message_fetching()
 
@@ -96,11 +97,11 @@ class MeshCoreTransport:
             self._mc = None
 
     async def send_msg(self, to_pubkey: str, body: str) -> SendOutcome:
-        """Send a DM with ACK retry + flood fallback (delegated to library)."""
+        """Send a DM with ACK retry + flood fallback."""
         if self._mc is None:
             return SendOutcome.ERROR
         try:
-            res = await self._mc.send_msg_with_retry(to_pubkey, body)
+            res = await self._mc.commands.send_msg_with_retry(to_pubkey, body)
         except Exception as e:
             log.warning("send_msg_with_retry raised: %s", e)
             return SendOutcome.ERROR
@@ -108,66 +109,49 @@ class MeshCoreTransport:
 
     async def sync_time(self, epoch: int) -> None:
         if self._mc is not None:
-            await self._mc.set_time(epoch)
+            await self._mc.commands.set_time(epoch)
 
     async def contact_capacity(self) -> tuple[int, int]:
         if self._mc is None:
             return (0, 0)
+        used = len(self._mc.contacts)
         try:
-            info = await self._mc.send_device_query()
+            event = await self._mc.commands.send_device_query()
+            if not event.is_error():
+                # DEVICE_INFO payload uses max_contacts for capacity.
+                cap = int(event.payload.get("max_contacts") or used)
+                return (used, cap)
         except Exception:
-            return (len(self._contact_cache), len(self._contact_cache))
-        used = info.get("contact_count") if isinstance(info, dict) else getattr(info, "contact_count", len(self._contact_cache))
-        cap = info.get("contact_capacity") if isinstance(info, dict) else getattr(info, "contact_capacity", used)
-        return (int(used or 0), int(cap or 0))
+            pass
+        return (used, used)
 
     async def prune_contact(self, pubkey: str) -> None:
         if self._mc is None:
             return
         try:
-            await self._mc.remove_contact(pubkey)
+            await self._mc.commands.remove_contact(pubkey)
         except Exception as e:
             log.warning("remove_contact(%s) failed: %s", pubkey[:8], e)
 
     # -- internals ------------------------------------------------------------
 
-    async def _refresh_contacts(self) -> None:
-        contacts = await self._mc.get_contacts()
-        self._contact_cache = {}
-        for c in contacts or []:
-            pk = _normalise_pubkey(c)
-            if pk:
-                self._contact_cache[pk] = c
+    def _on_contact_msg(self, event: Any) -> None:
+        asyncio.create_task(self._handle_contact_msg(event))
 
-    async def _resolve_prefix(self, prefix: str) -> dict[str, Any] | None:
-        prefix = prefix.lower()
-        for pk, c in self._contact_cache.items():
-            if pk.startswith(prefix):
-                return c
-        # Cache miss — refresh and try once more.
-        try:
-            c = await self._mc.get_contact_by_key_prefix(prefix)
-            if c is not None:
-                pk = _normalise_pubkey(c)
-                if pk:
-                    self._contact_cache[pk] = c
-                return c
-        except Exception as e:
-            log.debug("get_contact_by_key_prefix(%s): %s", prefix, e)
-        await self._refresh_contacts()
-        for pk, c in self._contact_cache.items():
-            if pk.startswith(prefix):
-                return c
-        return None
-
-    def _on_contact_msg(self, payload: Any) -> None:
-        # The library invokes callbacks; we cannot await here, so schedule it.
-        asyncio.create_task(self._handle_contact_msg(payload))
-
-    async def _handle_contact_msg(self, payload: Any) -> None:
+    async def _handle_contact_msg(self, event: Any) -> None:
+        # Callbacks receive Event objects; data is in event.payload.
+        payload = event.payload if hasattr(event, "payload") else event
         prefix = _get_attr(payload, "pubkey_prefix") or ""
         body = _get_attr(payload, "text") or _get_attr(payload, "body") or ""
-        contact = await self._resolve_prefix(prefix)
+
+        if self._mc is None:
+            return
+        # get_contact_by_key_prefix is a synchronous dict lookup in 2.3.x.
+        contact = self._mc.get_contact_by_key_prefix(prefix)
+        if contact is None:
+            # Contacts may not be loaded yet — refresh and retry once.
+            await self._mc.commands.get_contacts()
+            contact = self._mc.get_contact_by_key_prefix(prefix)
         if contact is None:
             log.warning("inbound from unresolved prefix %s; dropping", prefix)
             return
@@ -188,29 +172,30 @@ class MeshCoreTransport:
             )
         )
 
-    def _on_new_contact(self, payload: Any) -> None:
+    def _on_new_contact(self, event: Any) -> None:
+        payload = event.payload if hasattr(event, "payload") else event
         pk = _normalise_pubkey(payload) or ""
-        if pk:
-            self._contact_cache[pk] = payload if isinstance(payload, dict) else {"pubkey": pk}
         asyncio.create_task(
             self._events.put(TransportEvent(type=TransportEventType.NEW_CONTACT, pubkey=pk))
         )
 
-    def _on_advertisement(self, payload: Any) -> None:
+    def _on_advertisement(self, event: Any) -> None:
+        payload = event.payload if hasattr(event, "payload") else event
         pk = _normalise_pubkey(payload) or ""
         asyncio.create_task(
             self._events.put(TransportEvent(type=TransportEventType.ADVERTISEMENT, pubkey=pk))
         )
 
-    def _on_connected(self, payload: Any) -> None:
+    def _on_connected(self, event: Any) -> None:
+        payload = event.payload if hasattr(event, "payload") else event
         reconnected = bool(_get_attr(payload, "reconnected") or False)
         asyncio.create_task(
             self._events.put(TransportEvent(type=TransportEventType.CONNECTED, reconnected=reconnected))
         )
-        if reconnected:
-            asyncio.create_task(self._refresh_contacts())
+        if reconnected and self._mc is not None:
+            asyncio.create_task(self._mc.commands.get_contacts())
 
-    def _on_disconnected(self, payload: Any) -> None:
+    def _on_disconnected(self, event: Any) -> None:
         asyncio.create_task(self._events.put(TransportEvent(type=TransportEventType.DISCONNECTED)))
 
 
@@ -221,7 +206,8 @@ def _get_attr(obj: Any, key: str) -> Any:
 
 
 def _normalise_pubkey(c: Any) -> str | None:
-    pk = _get_attr(c, "pubkey") or _get_attr(c, "public_key") or _get_attr(c, "key")
+    # meshcore 2.3.x contacts use "public_key"; keep fallbacks for robustness.
+    pk = _get_attr(c, "public_key") or _get_attr(c, "pubkey") or _get_attr(c, "key")
     if pk is None:
         return None
     if isinstance(pk, bytes):
@@ -229,28 +215,37 @@ def _normalise_pubkey(c: Any) -> str | None:
     return str(pk).lower()
 
 
-def _pubkey_from_self_info(info: Any) -> str:
-    pk = _normalise_pubkey(info)
-    return pk or ""
-
-
 def _interpret_send_result(res: Any) -> SendOutcome:
-    """Translate library-returned send result into our enum.
+    """Translate send_msg_with_retry result into our SendOutcome enum.
 
-    The meshcore library variously returns dicts with a `status` field, or
-    a result object with a `success` attribute, or simply a truthy/falsy
-    value. We accept all and fail closed.
+    In meshcore 2.3.x, send_msg_with_retry returns:
+      - The MSG_SENT Event on success (ACK received)
+      - None when all retries are exhausted without ACK
     """
+    if res is None:
+        return SendOutcome.NO_ACK
+    # Check for Event object (normal 2.3.x path).
+    event_type = _get_attr(res, "type")
+    if event_type is not None:
+        try:
+            from meshcore import EventType  # type: ignore[import-not-found]
+            if event_type == EventType.MSG_SENT:
+                return SendOutcome.OK
+            if event_type == EventType.ERROR:
+                return SendOutcome.ERROR
+            return SendOutcome.NO_ACK
+        except ImportError:
+            pass
+    # Fallback for bool / dict variants (defensive, should not occur in practice).
     if res is True:
         return SendOutcome.OK
-    if res is False or res is None:
+    if res is False:
         return SendOutcome.NO_ACK
     if isinstance(res, dict):
         if res.get("acked") or res.get("success") or res.get("status") in ("ok", "delivered"):
             return SendOutcome.OK
         if res.get("status") in ("no_ack", "timeout"):
             return SendOutcome.NO_ACK
-        return SendOutcome.ERROR
     success = _get_attr(res, "success")
     if success is True:
         return SendOutcome.OK

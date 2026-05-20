@@ -2,9 +2,12 @@
 # Copy to config.yaml and edit. Never check the real config.yaml into git.
 
 device:
-  # Use a stable /dev/serial/by-id/... path on the host; the container should
-  # have it bind-mounted to /dev/ttyUSB0.
-  serial_path: /dev/ttyUSB0
+  # Path to the companion serial device inside the container.
+  # The host's /dev/serial/by-id/... path is bind-mounted here via --device.
+  # ESP32 devices (Heltec V3, T-Deck):     serial_path: /dev/ttyUSB0
+  # nRF52840 devices (Heltec T114, RAK4631): serial_path: /dev/ttyACM0
+  # Both sides of the --device mapping must agree with this value.
+  serial_path: /dev/ttyACM0
   baud: 115200
   # Optional sanity check. If set, BBS will refuse to start if the connected
   # companion's pubkey doesn't match (prevents talking to the wrong device).

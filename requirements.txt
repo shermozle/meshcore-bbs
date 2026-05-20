@@ -1,4 +1,4 @@
-meshcore>=2.3.0
+meshcore==2.3.7
 aiosqlite>=0.19
 httpx>=0.27
 feedparser>=6.0
