@@ -66,7 +66,7 @@ Note the full `/dev/serial/by-id/...` path. Use it everywhere instead of `/dev/t
 ### 2.1 Build the image
 
 ```bash
-git clone https://example.org/meshcore-bbs.git
+git clone https://github.com/shermozle/meshcore-bbs.git
 cd meshcore-bbs
 docker build -t meshcore-bbs:latest .
 ```
@@ -199,7 +199,7 @@ If you don't want Docker:
 
 ```bash
 sudo apt-get install -y python3.12 python3.12-venv git
-git clone https://example.org/meshcore-bbs.git /opt/meshcore-bbs
+git clone https://github.com/shermozle/meshcore-bbs.git /opt/meshcore-bbs
 cd /opt/meshcore-bbs
 python3.12 -m venv .venv
 .venv/bin/pip install -e .

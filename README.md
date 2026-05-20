@@ -20,7 +20,7 @@ Authentication is implicit: a user's identity is their MeshCore Curve25519 publi
 
 ```bash
 # Build the image
-git clone https://example.org/meshcore-bbs.git
+git clone https://github.com/shermozle/meshcore-bbs.git
 cd meshcore-bbs
 docker build -t meshcore-bbs:latest .
 

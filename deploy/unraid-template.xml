@@ -16,7 +16,7 @@
   <Shell>bash</Shell>
   <Privileged>false</Privileged>
   <Support/>
-  <Project>https://github.com/your-org/meshcore-bbs</Project>
+  <Project>https://github.com/shermozle/meshcore-bbs</Project>
   <Overview>A bulletin board system reachable over MeshCore mesh DMs. Provides news, weather, message boards, and user-to-user mail to any MeshCore client.</Overview>
   <Category>Communications:</Category>
   <WebUI>http://[IP]:[PORT:8080]/health</WebUI>

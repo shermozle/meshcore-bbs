@@ -1,6 +1,6 @@
 [Unit]
 Description=MeshCore BBS
-Documentation=https://github.com/your-org/meshcore-bbs
+Documentation=https://github.com/shermozle/meshcore-bbs
 After=network-online.target
 Wants=network-online.target
 
