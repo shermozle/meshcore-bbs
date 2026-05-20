@@ -39,6 +39,7 @@ class MeshCoreTransport:
         self._mc: Any = None  # meshcore.MeshCore
         self._events: asyncio.Queue[TransportEvent] = asyncio.Queue()
         self._self_pubkey: str = ""
+        self._poll_task: asyncio.Task | None = None
 
     @property
     def self_pubkey(self) -> str:
@@ -88,13 +89,39 @@ class MeshCoreTransport:
 
         await self._mc.start_auto_message_fetching()
 
+        # Polling fallback: some firmware versions don't reliably send
+        # MESSAGES_WAITING push events, so messages accumulate unseen.
+        # Poll every 30 s to catch anything the push mechanism missed.
+        self._poll_task = asyncio.create_task(
+            self._message_poll_loop(), name="msg_poll"
+        )
+
     async def stop(self) -> None:
+        if self._poll_task is not None:
+            self._poll_task.cancel()
+            try:
+                await self._poll_task
+            except asyncio.CancelledError:
+                pass
+            self._poll_task = None
         if self._mc is not None:
             try:
                 await self._mc.disconnect()
             except Exception as e:
                 log.warning("error during transport stop: %s", e)
             self._mc = None
+
+    async def _message_poll_loop(self) -> None:
+        """Periodically drain the companion's inbound queue as a fallback for
+        firmware that doesn't send MESSAGES_WAITING push notifications."""
+        while True:
+            await asyncio.sleep(30)
+            if self._mc is None:
+                continue
+            try:
+                await self._mc.commands.get_msg()
+            except Exception as e:
+                log.debug("poll get_msg error: %s", e)
 
     async def send_msg(self, to_pubkey: str, body: str) -> SendOutcome:
         """Send a DM with ACK retry + flood fallback."""
