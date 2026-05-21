@@ -27,6 +27,7 @@ import sys
 import time
 from pathlib import Path
 
+from . import __version__
 from .config import Config
 from .db import Database, open_db
 from .dispatcher import Dispatcher
@@ -130,7 +131,7 @@ async def run(args: argparse.Namespace) -> int:
         health_runner = await start_health_server(cfg.health, db, health_state, metrics)
         metrics_runner = await start_metrics_server(cfg.metrics, metrics) if metrics else None
 
-        await db.audit(None, "startup", f"version=0.1.0 pubkey={transport.self_pubkey[:12]}")
+        await db.audit(None, "startup", f"version={__version__} pubkey={transport.self_pubkey[:12]}")
         log.info("BBS ready. self_pubkey=%s", transport.self_pubkey[:12])
 
         # Signal handling.

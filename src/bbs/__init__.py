@@ -1,3 +1,8 @@
 """MeshCore BBS — a bulletin board reachable over MeshCore DMs."""
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("meshcore-bbs")
+except PackageNotFoundError:
+    __version__ = "0.0.0-dev"
