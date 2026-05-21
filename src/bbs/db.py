@@ -590,9 +590,13 @@ class Database:
     # -- maintenance ----------------------------------------------------------
 
     async def vacuum(self) -> None:
-        await self.conn.commit()
-        await self.conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
-        await self.conn.execute("VACUUM")
+        try:
+            await self.conn.commit()
+            await self.conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            await self.conn.execute("VACUUM")
+            log.info("vacuum complete")
+        except Exception as e:
+            log.warning("vacuum skipped (db busy): %s", e)
 
     async def execute(self, sql: str, params: Iterable[Any] = ()) -> aiosqlite.Cursor:
         return await self.conn.execute(sql, params)
