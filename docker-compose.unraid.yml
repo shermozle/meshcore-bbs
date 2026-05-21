@@ -1,0 +1,16 @@
+services:
+  meshcore-bbs:
+    image: ghcr.io/shermozle/meshcore-bbs:latest
+    container_name: meshcore-bbs
+    restart: unless-stopped
+    devices:
+      - "/dev/serial/by-id/usb-Heltec_HT-n5262_1E0CD629CB131AF9-if00:/dev/ttyACM0"
+    group_add:
+      - "0"
+    volumes:
+      - /mnt/user/appdata/meshcore-bbs:/data
+    ports:
+      - "8888:8080"
+    environment:
+      BBS_CONFIG: /data/config.yaml
+      BBS_DB: /data/bbs.db
