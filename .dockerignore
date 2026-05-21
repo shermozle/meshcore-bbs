@@ -10,7 +10,6 @@ htmlcov
 build
 dist
 *.egg-info
-tests
 docs
 data
 config/config.yaml
