@@ -5,8 +5,7 @@ services:
     restart: unless-stopped
     devices:
       - "/dev/serial/by-id/usb-Heltec_HT-n5262_1E0CD629CB131AF9-if00:/dev/ttyACM0"
-    group_add:
-      - "0"
+    user: root
     volumes:
       - /mnt/user/appdata/meshcore-bbs:/data
     ports:
