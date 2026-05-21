@@ -62,7 +62,7 @@ class NewsConfig:
 @dataclass
 class WeatherConfig:
     bom_station: str = "IDN60901.94768"
-    user_agent: str = "meshcore-bbs/0.1"
+    user_agent: str = "Mozilla/5.0 (compatible; meshcore-bbs/0.1)"
     cache_observation_seconds: int = 600
     cache_forecast_seconds: int = 3600
 

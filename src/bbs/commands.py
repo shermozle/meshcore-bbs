@@ -58,7 +58,7 @@ def parse(line: str) -> ParsedCommand | None:
 
 
 HELP_OVERVIEW = (
-    "Cmds: HELP WHOAMI NAME NEWS WX BOARDS READ POST\n"
+    "Cmds: HELP WHOAMI NAME WHO NEWS WX BOARDS READ POST\n"
     "MAIL INBOX READMAIL SEND DELETE STATUS\n"
     "HELP <cmd> for details."
 )
@@ -67,6 +67,7 @@ HELP_TOPICS: dict[str, str] = {
     "HELP": "HELP [topic] - list cmds or detail on one.",
     "WHOAMI": "WHOAMI - show your name and pubkey prefix.",
     "NAME": "NAME <new> - set display name (1-10 chars, A-Z 0-9 _ -).",
+    "WHO": "WHO - list up to 5 recently active users.",
     "NEWS": "NEWS [feed] - top headlines, optionally from one feed.",
     "WX": "WX [station] - weather summary (default: BBS-local).",
     "BOARDS": "BOARDS - list public boards.",

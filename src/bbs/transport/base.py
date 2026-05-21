@@ -27,12 +27,14 @@ class InboundMessage:
 
     `pubkey` is always the full 64-char hex Curve25519 key, resolved by the
     transport from the wire-level prefix.
+    `hops` is the mesh hop count (0 = direct, None = unknown).
     """
 
     pubkey: str
     adv_name: str | None
     body: str
     received_at: int
+    hops: int | None = None
 
 
 @dataclass

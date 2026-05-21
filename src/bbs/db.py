@@ -190,8 +190,10 @@ class Database:
         row = await cur.fetchone()
         return _user_from_row(row) if row else None
 
-    async def upsert_user_first_seen(self, pubkey: str, adv_name: str | None, now: int) -> User:
-        """Create a stub user row if missing. Returns the user (created or existing)."""
+    async def upsert_user_first_seen(
+        self, pubkey: str, adv_name: str | None, now: int
+    ) -> tuple["User", bool]:
+        """Create a stub user row if missing. Returns (user, is_new)."""
         existing = await self.get_user(pubkey)
         if existing:
             await self.conn.execute(
@@ -199,7 +201,7 @@ class Database:
                 (now, adv_name, pubkey),
             )
             await self.conn.commit()
-            return existing
+            return existing, False
         await self.conn.execute(
             """INSERT INTO users (pubkey, adv_name, first_seen, last_seen)
                VALUES (?, ?, ?, ?)""",
@@ -208,7 +210,7 @@ class Database:
         await self.conn.commit()
         user = await self.get_user(pubkey)
         assert user is not None
-        return user
+        return user, True
 
     async def touch_user(self, pubkey: str, now: int) -> None:
         await self.conn.execute(
@@ -247,6 +249,16 @@ class Database:
     async def all_user_pubkeys(self) -> list[str]:
         cur = await self.conn.execute("SELECT pubkey FROM users WHERE banned = 0")
         return [r[0] for r in await cur.fetchall()]
+
+    async def recent_active_users(self, limit: int = 5) -> list["User"]:
+        """Return the most recently active onboarded users."""
+        cur = await self.conn.execute(
+            """SELECT * FROM users
+               WHERE onboarded = 1 AND banned = 0
+               ORDER BY last_seen DESC LIMIT ?""",
+            (limit,),
+        )
+        return [_user_from_row(r) for r in await cur.fetchall()]
 
     # -- boards ---------------------------------------------------------------
 
@@ -577,7 +589,9 @@ class Database:
     # -- maintenance ----------------------------------------------------------
 
     async def vacuum(self) -> None:
+        await self.conn.commit()
         await self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        await self.conn.commit()
         await self.conn.execute("VACUUM")
 
     async def execute(self, sql: str, params: Iterable[Any] = ()) -> aiosqlite.Cursor:

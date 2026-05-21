@@ -64,22 +64,36 @@ class Dispatcher:
             return  # loopback safety
 
         now = int(time.time())
-        user = await self.db.upsert_user_first_seen(inbound.pubkey, inbound.adv_name, now)
+        user, is_new = await self.db.upsert_user_first_seen(inbound.pubkey, inbound.adv_name, now)
         await self.db.touch_user(inbound.pubkey, now)
+
+        display = user.display_name or inbound.adv_name or inbound.pubkey[:12]
+        hops_str = f"hops={inbound.hops}" if inbound.hops is not None else "hops=?"
+        log.info("inbound from %s (%s) %s: %r", display, inbound.pubkey[:12], hops_str,
+                 inbound.body[:80])
 
         if user.banned:
             log.info("dropping inbound from banned user %s", inbound.pubkey[:12])
             return
 
-        # Inbound rate limit (sliding-window, two buckets: per-min + per-hour).
-        for bucket, limit in (
-            ("inbound_min", RateLimit(self.cfg.limits.inbound_per_minute, 60)),
-            ("inbound_hour", RateLimit(self.cfg.limits.inbound_per_hour, 3600)),
-        ):
-            decision = await self.rate_limiter.check_and_consume(inbound.pubkey, bucket, limit)
-            if not decision.allowed:
-                await self._reply_throttled(inbound.pubkey, decision)
-                return
+        if is_new:
+            await self._notify_admins_new_user(display, inbound.pubkey)
+
+        is_admin = self.admin.is_admin(inbound.pubkey)
+
+        # Inbound rate limit (sliding-window). Direct (hops=0) and admins bypass.
+        # 1 hop → 4× limit, 2 hops → 2×, 3+ hops → base limit.
+        if not is_admin and inbound.hops != 0:
+            mul = _hop_multiplier(inbound.hops)
+            for bucket, base_limit in (
+                ("inbound_min", RateLimit(self.cfg.limits.inbound_per_minute, 60)),
+                ("inbound_hour", RateLimit(self.cfg.limits.inbound_per_hour, 3600)),
+            ):
+                scaled = RateLimit(base_limit.limit * mul, base_limit.window_seconds)
+                decision = await self.rate_limiter.check_and_consume(inbound.pubkey, bucket, scaled)
+                if not decision.allowed:
+                    await self._reply_throttled(inbound.pubkey, decision)
+                    return
 
         # Onboarding gate: any user without a display name set goes through
         # the onboarding state machine first.
@@ -135,11 +149,17 @@ class Dispatcher:
     ) -> None:
         v = parsed.verb
         pk = inbound.pubkey
+        user = await self.db.get_user(pk)
+        user_display = (user.display_name if user else None) or inbound.adv_name or pk[:12]
+
+        log.info("cmd %s from %s (%s)", v, user_display, pk[:12])
 
         try:
             if v == "HELP":
                 topic = parsed.args[0] if parsed.args else None
                 await self._enqueue_reply(pk, commands.help_text(topic))
+            elif v == "WHO":
+                await self._handle_who(pk)
             elif v == "WHOAMI":
                 await self._handle_whoami(pk)
             elif v == "NAME":
@@ -184,6 +204,24 @@ class Dispatcher:
             return
         name = user.display_name or "(unset)"
         await self._enqueue_reply(pk, f"{name} {pk[:12]}")
+
+    async def _handle_who(self, pk: str) -> None:
+        users = await self.db.recent_active_users(5)
+        if not users:
+            await self._enqueue_reply(pk, "No active users yet.")
+            return
+        now = int(time.time())
+        lines = [
+            f"{u.display_name or u.adv_name or u.pubkey[:8]} ({_fmt_age(now - u.last_seen)})"
+            for u in users
+        ]
+        await self._enqueue_reply(pk, "\n".join(lines))
+
+    async def _notify_admins_new_user(self, display: str, pubkey: str) -> None:
+        msg = f"New user: {display} ({pubkey[:12]})"
+        for admin_pk in self.cfg.bbs.admin_pubkeys:
+            if admin_pk.lower() != pubkey.lower():
+                await self._enqueue_reply(admin_pk.lower(), msg, priority=PRIORITY_NOTIFICATION)
 
     async def _handle_name(self, pk: str, parsed: commands.ParsedCommand) -> None:
         if not parsed.args:
@@ -386,6 +424,29 @@ def _maybe_int(args: list[str], idx: int, default: int) -> int:
     if idx < len(args) and args[idx].isdigit():
         return int(args[idx])
     return default
+
+
+def _hop_multiplier(hops: int | None) -> int:
+    """Return rate-limit multiplier based on hop count.
+
+    Higher multiplier = more permissive (caller multiplies configured limit).
+    hops=None (unknown) treated as 1 hop.
+    """
+    if hops is None or hops == 1:
+        return 4
+    if hops == 2:
+        return 2
+    return 1
+
+
+def _fmt_age(secs: int) -> str:
+    if secs < 120:
+        return "just now"
+    if secs < 3600:
+        return f"{secs // 60}min ago"
+    if secs < 86400:
+        return f"{secs // 3600}h ago"
+    return f"{secs // 86400}d ago"
 
 
 def _fmt_uptime(secs: int) -> str:

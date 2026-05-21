@@ -187,6 +187,8 @@ class MeshCoreTransport:
             log.debug("ignoring loopback message from self")
             return
         adv_name = _get_attr(contact, "adv_name") or _get_attr(contact, "name")
+        hops_raw = _get_attr(payload, "hops") or _get_attr(payload, "num_hops")
+        hops = int(hops_raw) if hops_raw is not None else None
         await self._events.put(
             TransportEvent(
                 type=TransportEventType.CONTACT_MSG_RECV,
@@ -195,6 +197,7 @@ class MeshCoreTransport:
                     adv_name=adv_name,
                     body=body,
                     received_at=int(time.time()),
+                    hops=hops,
                 ),
             )
         )

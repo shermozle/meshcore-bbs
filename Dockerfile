@@ -10,16 +10,33 @@ RUN apt-get update \
 RUN useradd -m -u 1000 bbs \
     && usermod -aG dialout bbs
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
 WORKDIR /app
 
-# Install Python deps first for layer caching.
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
 
-# Copy application source.
-COPY pyproject.toml ./
+# Install runtime dependencies from the lockfile (no dev extras).
+# Two-step: deps first for layer caching, then install the project.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
 COPY src/ ./src/
-RUN pip install --no-cache-dir --no-deps -e .
+RUN uv sync --frozen --no-dev
+
+
+# ── test stage ────────────────────────────────────────────────────────────────
+FROM base AS test
+
+COPY tests/ ./tests/
+RUN uv sync --frozen --extra dev
+RUN uv run pytest
+
+
+# ── runtime stage ─────────────────────────────────────────────────────────────
+FROM base AS runtime
 
 USER bbs
 
@@ -31,7 +48,8 @@ EXPOSE 8080 9090
 
 ENV PYTHONUNBUFFERED=1 \
     BBS_CONFIG=/data/config.yaml \
-    BBS_DB=/data/bbs.db
+    BBS_DB=/data/bbs.db \
+    PATH="/app/.venv/bin:$PATH"
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD python -c "import urllib.request,sys; \
