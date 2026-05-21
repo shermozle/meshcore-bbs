@@ -61,7 +61,9 @@ class NewsConfig:
 
 @dataclass
 class WeatherConfig:
-    bom_station: str = "IDN60901.94768"
+    latitude: float = -33.87
+    longitude: float = 151.21
+    location_name: str = "Sydney"
     user_agent: str = "Mozilla/5.0 (compatible; meshcore-bbs/0.1)"
     cache_observation_seconds: int = 600
     cache_forecast_seconds: int = 3600
@@ -135,7 +137,9 @@ class Config:
             max_items_per_feed=news_raw.get("max_items_per_feed", 50),
             refresh_interval_seconds=news_raw.get("refresh_interval_seconds", 900),
         )
-        weather = WeatherConfig(**raw.get("weather", {}))
+        _weather_raw = raw.get("weather", {})
+        weather = WeatherConfig(**{k: v for k, v in _weather_raw.items()
+                                   if k in WeatherConfig.__dataclass_fields__})
         contacts = ContactsConfig(**raw.get("contacts", {}))
         mail = MailConfig(**raw.get("mail", {}))
         health = HealthConfig(**raw.get("health", {}))

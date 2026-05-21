@@ -51,7 +51,7 @@ def start_all(
 
     # Weather refresh (local default).
     async def wx_job() -> None:
-        await weather.summary_for(cfg.bbs.default_location)
+        await weather.summary_for()
     tasks.append(asyncio.create_task(
         loop("weather_refresh", 3600, wx_job), name="weather_refresh"
     ))

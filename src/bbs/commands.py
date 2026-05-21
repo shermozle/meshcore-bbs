@@ -78,7 +78,7 @@ HELP_TOPICS: dict[str, str] = {
     "READMAIL": "READMAIL <id> - read a mail and mark it read.",
     "SEND": "SEND <user> <text> - send mail (name or pubkey prefix).",
     "DELETE": "DELETE <id> - delete a mail.",
-    "STATUS": "STATUS - BBS uptime, message count, etc.",
+    "STATUS": "STATUS - BBS uptime, version, outbound queue depth.",
     "ADMIN": "ADMIN BAN|UNBAN|BOARD ADD|BOARD DEL|BROADCAST",
 }
 

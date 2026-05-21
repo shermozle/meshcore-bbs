@@ -53,8 +53,7 @@ Everything is case-insensitive. Arguments are space-separated.
 | `NEWS` | Top 5 recent headlines across all feeds |
 | `NEWS <page>` | Older headlines |
 | `NEWS <feed>` | Filter to a single feed (e.g. `NEWS abc`) |
-| `WX` | Weather summary for the BBS-default location |
-| `WX <station>` | Weather for a specific station ID (e.g. BoM `IDN60901.94768`) |
+| `WX` | Weather summary for the BBS-default location (via Open-Meteo) |
 
 News pages 5 items at a time. If there's more, you'll see `[more: NEWS 2]` at the end of the reply — just type that command to see the next page.
 

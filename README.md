@@ -9,7 +9,7 @@ Authentication is implicit: a user's identity is their MeshCore Curve25519 publi
 - **Public message boards** (`BOARDS`, `READ`, `POST`)
 - **Asynchronous user-to-user mail** (`SEND`, `INBOX`, `READMAIL`, `DELETE`)
 - **News headlines** from configurable RSS feeds (`NEWS`)
-- **Weather lookup** from Bureau of Meteorology (`WX`)
+- **Weather lookup** via Open-Meteo (free, no API key, no blocking) (`WX`)
 - **Admin commands** (BAN/UNBAN, BOARD ADD/DEL, BROADCAST)
 - **Onboarding flow** — first-time users pick a display name
 - **Rate limiting**, **audit logging**, **persistent outbound queue**
@@ -19,20 +19,27 @@ Authentication is implicit: a user's identity is their MeshCore Curve25519 publi
 ## Quick start
 
 ```bash
-# Build the image
 git clone https://github.com/shermozle/meshcore-bbs.git
 cd meshcore-bbs
-docker build -t meshcore-bbs:latest .
-
-# Configure
-mkdir -p data
 cp config/config.example.yaml data/config.yaml
-# Edit data/config.yaml — at minimum set bbs.admin_pubkeys
+# Edit data/config.yaml — set bbs.admin_pubkeys and weather lat/lon
+```
 
-# Find your companion's stable USB-serial path
+**Unraid** — copy `docker-compose.unraid.yml` to your appdata, edit the device path, then:
+
+```bash
+docker compose -f docker-compose.unraid.yml pull
+docker compose -f docker-compose.unraid.yml up -d
+```
+
+Future updates: re-run the same two commands.
+
+**Other Docker hosts:**
+
+```bash
+# Find your companion's USB-serial path
 ls -l /dev/serial/by-id/
-
-# Edit docker-compose.yml — set the device path to the one above
+# Edit docker-compose.yml — set the device path
 docker compose up -d
 docker compose logs -f
 ```
@@ -74,12 +81,11 @@ scripts/                  Helper scripts (seed, backup, inspect)
 ## Development
 
 ```bash
-python -m venv .venv
-.venv/bin/pip install -e ".[dev]"
-PYTHONPATH=src .venv/bin/pytest
+uv sync --extra dev
+uv run pytest
 
 # Run locally with no hardware:
-PYTHONPATH=src .venv/bin/python -m bbs --mock --config config/config.example.yaml --db /tmp/bbs.db
+uv run python -m bbs --mock --config config/config.example.yaml --db /tmp/bbs.db
 ```
 
 The `--mock` flag swaps in an in-memory transport so you can poke at the dispatcher without a companion device.

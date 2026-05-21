@@ -40,16 +40,18 @@ news:
   feeds:
     - slug: abc
       url: https://www.abc.net.au/news/feed/45910/rss.xml
-    - slug: bom_warnings
-      url: https://www.bom.gov.au/fwo/IDZ00056.warnings_nsw.xml
+    # BOM warning feeds have been unreliable; remove if you see 403 errors.
+    # - slug: bom_warnings
+    #   url: https://www.bom.gov.au/fwo/IDZ00056.warnings_nsw.xml
   max_items_per_feed: 50
   refresh_interval_seconds: 900
 
 weather:
-  bom_station: "IDN60901.94768"  # Sydney
-  user_agent: "Mozilla/5.0 (compatible; meshcore-bbs/0.1)"
+  # Open-Meteo (free, no API key). Set lat/lon for your location.
+  latitude: -33.87
+  longitude: 151.21
+  location_name: "Sydney"
   cache_observation_seconds: 600
-  cache_forecast_seconds: 3600
 
 contacts:
   # Prune contacts not seen in this many days.
