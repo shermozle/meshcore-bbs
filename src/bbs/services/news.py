@@ -35,9 +35,11 @@ class NewsService:
         self.user_agent = user_agent
 
     async def initialise_feeds(self) -> None:
-        """Make sure feed rows exist for every configured feed."""
+        """Sync DB feed rows with config: add/enable configured, disable removed."""
+        configured_slugs = {feed.slug for feed in self.cfg.feeds}
         for feed in self.cfg.feeds:
             await self.db.upsert_news_feed(feed.slug, feed.url)
+        await self.db.disable_feeds_not_in(configured_slugs)
 
     async def refresh_all(self) -> int:
         """Refresh every enabled feed. Returns total new items inserted."""

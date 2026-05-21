@@ -410,6 +410,17 @@ class Database:
         await self.conn.commit()
         return int(cur.lastrowid or 0)
 
+    async def disable_feeds_not_in(self, slugs: set[str]) -> None:
+        """Disable any feed whose slug is not in the current config."""
+        all_feeds = await self.conn.execute("SELECT slug FROM news_feeds WHERE enabled = 1")
+        for row in await all_feeds.fetchall():
+            if row[0] not in slugs:
+                await self.conn.execute(
+                    "UPDATE news_feeds SET enabled = 0 WHERE slug = ?", (row[0],)
+                )
+                log.info("disabled removed feed: %s", row[0])
+        await self.conn.commit()
+
     async def list_feed_ids(self) -> list[tuple[int, str, str]]:
         cur = await self.conn.execute(
             "SELECT id, slug, url FROM news_feeds WHERE enabled = 1 ORDER BY slug"
