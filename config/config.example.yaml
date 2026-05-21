@@ -41,13 +41,13 @@ news:
     - slug: abc
       url: https://www.abc.net.au/news/feed/45910/rss.xml
     - slug: bom_warnings
-      url: http://www.bom.gov.au/fwo/IDZ00056.warnings_nsw.xml
+      url: https://www.bom.gov.au/fwo/IDZ00056.warnings_nsw.xml
   max_items_per_feed: 50
   refresh_interval_seconds: 900
 
 weather:
   bom_station: "IDN60901.94768"  # Sydney
-  user_agent: "meshcore-bbs/0.1 (admin@example.com)"
+  user_agent: "Mozilla/5.0 (compatible; meshcore-bbs/0.1)"
   cache_observation_seconds: 600
   cache_forecast_seconds: 3600
 

@@ -50,8 +50,13 @@ class WeatherService:
         url = _build_url(station)
         try:
             async with httpx.AsyncClient(
-                headers={"User-Agent": self.cfg.user_agent},
+                headers={
+                    "User-Agent": self.cfg.user_agent,
+                    "Accept": "application/json, text/html, */*",
+                    "Accept-Language": "en-AU,en;q=0.9",
+                },
                 timeout=httpx.Timeout(20.0, connect=5.0),
+                follow_redirects=True,
             ) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()

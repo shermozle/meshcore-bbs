@@ -141,6 +141,7 @@ class Database:
         await self._conn.execute("PRAGMA journal_mode=WAL")
         await self._conn.execute("PRAGMA foreign_keys=ON")
         await self._conn.execute("PRAGMA synchronous=NORMAL")
+        await self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.row_factory = aiosqlite.Row
         await self._run_migrations()
 
@@ -590,8 +591,7 @@ class Database:
 
     async def vacuum(self) -> None:
         await self.conn.commit()
-        await self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        await self.conn.commit()
+        await self.conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
         await self.conn.execute("VACUUM")
 
     async def execute(self, sql: str, params: Iterable[Any] = ()) -> aiosqlite.Cursor:

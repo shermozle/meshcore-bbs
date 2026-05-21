@@ -44,8 +44,13 @@ class NewsService:
         feeds = await self.db.list_feed_ids()
         total_new = 0
         async with httpx.AsyncClient(
-            headers={"User-Agent": self.user_agent},
+            headers={
+                "User-Agent": self.user_agent,
+                "Accept": "application/rss+xml, application/xml, text/xml, */*",
+                "Accept-Language": "en-AU,en;q=0.9",
+            },
             timeout=httpx.Timeout(30.0, connect=10.0),
+            follow_redirects=True,
         ) as client:
             for feed_id, slug, url in feeds:
                 try:
