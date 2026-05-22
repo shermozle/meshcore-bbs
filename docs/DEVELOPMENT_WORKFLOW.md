@@ -127,6 +127,13 @@ Health endpoint will be on port **8889** (prod stays on 8888).
 - **`:dev` is overwritten without coordination.** If two PRs are open
   and both get pushed to, whichever was pushed most recently wins for
   `:dev`. Pin to `:pr-<n>` when you need stability while reviewing.
+- **Docs-only / compose-only PRs don't trigger rebuilds.** The workflow
+  has a `paths-ignore` for `**.md`, `docs/**`, `docker-compose*.yml`,
+  `LICENSE`, `deploy/**`, and `scripts/**`. A PR that mixes any of those
+  with a code change still builds — the ignore only applies when *all*
+  changed files match. To force a rebuild after a docs-only change
+  (e.g. to retag `:dev`), push a no-op commit that touches `src/` or
+  the Dockerfile.
 - **Migrations run on container start** (`MIGRATIONS` in `src/bbs/db.py`).
   Keep dev and prod DBs in separate appdata directories so a schema
   change in a PR can't corrupt the production DB.

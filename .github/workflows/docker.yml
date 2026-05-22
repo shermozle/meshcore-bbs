@@ -3,8 +3,27 @@ name: Build and publish Docker image
 on:
   push:
     branches: [main]
+    # Skip rebuilds when only files that have no effect on the runtime
+    # image change. Anything COPYed into the Dockerfile (src/, tests/,
+    # pyproject.toml, uv.lock) or the Dockerfile / workflow itself still
+    # triggers a build. A PR that mixes code + docs still builds, because
+    # paths-ignore only skips when *all* changed files match.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'docker-compose*.yml'
+      - 'LICENSE'
+      - 'deploy/**'
+      - 'scripts/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'docker-compose*.yml'
+      - 'LICENSE'
+      - 'deploy/**'
+      - 'scripts/**'
 
 env:
   REGISTRY: ghcr.io
@@ -20,24 +39,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Push images for pushes to main AND pull requests opened from
-      # branches in this repo (Cursor Cloud Agent dev builds). PRs from
-      # forks do not have access to GITHUB_TOKEN with packages:write,
-      # so they fall through to the test-only path.
-      - name: Decide whether to push
-        id: push
-        run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "pull_request" ] \
-               && [ "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}" ]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Log in to ghcr.io
-        if: steps.push.outputs.publish == 'true'
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -52,14 +55,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # Tagging rules:
-          #   main branch  -> :latest, :sha-<short>
-          #   pull request -> :pr-<number>, :dev, :sha-<short>
-          # `type=ref,event=pr` already produces `pr-<number>` by default.
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=ref,event=pr
-            type=raw,value=dev,enable=${{ github.event_name == 'pull_request' }}
             type=sha,prefix=sha-
 
       - name: Build and test
@@ -71,7 +68,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push runtime image
-        if: steps.push.outputs.publish == 'true'
+        if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v6
         with:
           context: .
