@@ -1,0 +1,51 @@
+## MeshCore BBS — Unraid DEV instance
+#
+# Runs a second BBS container alongside the production one so you can
+# preview Cursor Cloud Agent pull-request builds before merging.
+#
+# Tag conventions published by .github/workflows/docker.yml:
+#   :latest        — last green main build (production uses this)
+#   :dev           — latest PR build, regardless of which PR
+#   :pr-<number>   — pinned to a specific PR
+#   :sha-<short>   — pinned to an exact commit
+#
+# Default below is `:dev`, which auto-rolls to whatever PR was last
+# built. Switch to `:pr-42` when you want to pin to one PR while others
+# are open.
+#
+# Differences from the production compose file:
+#   • container_name: meshcore-bbs-dev (so both can coexist)
+#   • appdata path:   /mnt/user/appdata/meshcore-bbs-dev (separate DB)
+#   • host port:      8889 -> 8080 (production uses 8888)
+#   • device path:    point at the DEV companion radio's USB id
+#
+# Before first start, copy your production config and adjust callsigns,
+# admin pubkeys, and any board names so dev and prod stay distinct:
+#   mkdir -p /mnt/user/appdata/meshcore-bbs-dev
+#   cp /mnt/user/appdata/meshcore-bbs/config.yaml \
+#      /mnt/user/appdata/meshcore-bbs-dev/config.yaml
+#
+# To update to the latest dev image:
+#   docker compose -f docker-compose.unraid-dev.yml pull
+#   docker compose -f docker-compose.unraid-dev.yml up -d
+#
+# To pin to a specific PR, set BBS_DEV_TAG before pulling:
+#   BBS_DEV_TAG=pr-42 docker compose -f docker-compose.unraid-dev.yml pull
+#   BBS_DEV_TAG=pr-42 docker compose -f docker-compose.unraid-dev.yml up -d
+
+services:
+  meshcore-bbs-dev:
+    image: ghcr.io/shermozle/meshcore-bbs:${BBS_DEV_TAG:-dev}
+    container_name: meshcore-bbs-dev
+    restart: unless-stopped
+    devices:
+      # Replace with the by-id path of your DEV companion radio.
+      - "/dev/serial/by-id/usb-Heltec_HT-n5262_REPLACE_WITH_DEV_RADIO-if00:/dev/ttyACM0"
+    user: root
+    volumes:
+      - /mnt/user/appdata/meshcore-bbs-dev:/data
+    ports:
+      - "8889:8080"
+    environment:
+      BBS_CONFIG: /data/config.yaml
+      BBS_DB: /data/bbs.db
