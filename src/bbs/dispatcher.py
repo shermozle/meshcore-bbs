@@ -222,12 +222,13 @@ class Dispatcher:
         await self._enqueue_reply(pk, "\n".join(lines))
 
     async def _handle_ping(self, inbound: InboundMessage) -> None:
-        hops_str = f"{inbound.hops}hop" if inbound.hops is not None else "?hop"
-        path_str = _fmt_path(inbound.path)
-        if path_str:
-            await self._enqueue_reply(inbound.pubkey, f"PONG {hops_str} via {path_str}")
+        if inbound.hops is None:
+            hops_str = "?"
+        elif inbound.hops == 0:
+            hops_str = "direct"
         else:
-            await self._enqueue_reply(inbound.pubkey, f"PONG {hops_str}")
+            hops_str = f"{inbound.hops} hop{'s' if inbound.hops != 1 else ''}"
+        await self._enqueue_reply(inbound.pubkey, f"PONG ({hops_str})")
 
     async def _notify_admins_new_user(self, display: str, pubkey: str) -> None:
         msg = f"New user: {display} ({pubkey[:12]})"
@@ -449,13 +450,6 @@ def _hop_multiplier(hops: int | None) -> int:
     if hops == 2:
         return 2
     return 1
-
-
-def _fmt_path(path: list[str]) -> str:
-    """Format a mesh path as human-readable node names/prefixes."""
-    if not path:
-        return ""
-    return " → ".join(p[:8] if len(p) > 8 else p for p in path)
 
 
 def _fmt_age(secs: int) -> str:

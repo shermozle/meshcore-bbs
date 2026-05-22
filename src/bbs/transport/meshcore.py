@@ -195,8 +195,14 @@ class MeshCoreTransport:
             log.debug("ignoring loopback message from self")
             return
         adv_name = _get_attr(contact, "adv_name") or _get_attr(contact, "name")
-        hops_raw = _get_attr(payload, "hops") or _get_attr(payload, "num_hops")
-        hops = int(hops_raw) if hops_raw is not None else None
+        # path_len == 255 means "direct" (0 hops); otherwise it's the relay count.
+        path_len = _get_attr(payload, "path_len")
+        if path_len is None:
+            hops = None
+        elif path_len == 255:
+            hops = 0
+        else:
+            hops = int(path_len)
         path = _extract_path(payload, self._mc)
         await self._events.put(
             TransportEvent(
@@ -256,27 +262,10 @@ def _normalise_pubkey(c: Any) -> str | None:
 
 
 def _extract_path(payload: Any, mc: Any) -> list[str]:
-    """Extract the relay path from a message payload.
-
-    MeshCore stores the relay path as a list of pubkey prefixes in the payload.
-    We resolve each prefix to a contact name where possible.
-    """
-    raw_path = _get_attr(payload, "path") or _get_attr(payload, "relay_path") or []
-    if not raw_path or not isinstance(raw_path, (list, tuple)):
-        return []
-    result: list[str] = []
-    for node in raw_path:
-        node_str = node.hex().lower() if isinstance(node, bytes) else str(node).lower()
-        name: str | None = None
-        if mc is not None:
-            try:
-                contact = mc.get_contact_by_key_prefix(node_str)
-                if contact is not None:
-                    name = _get_attr(contact, "adv_name") or _get_attr(contact, "name")
-            except Exception:
-                pass
-        result.append(name or node_str)
-    return result
+    """CONTACT_MSG_RECV packets carry only a hop count, not individual node IDs.
+    Individual relay identities are only available in trace packets, which are
+    separate requests. Always returns [] for now."""
+    return []
 
 
 def _interpret_send_result(res: Any) -> SendOutcome:
