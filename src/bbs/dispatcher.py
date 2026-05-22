@@ -65,7 +65,7 @@ class Dispatcher:
 
         now = int(time.time())
         user, is_new = await self.db.upsert_user_first_seen(inbound.pubkey, inbound.adv_name, now)
-        await self.db.touch_user(inbound.pubkey, now)
+        await self.db.touch_user(inbound.pubkey, now, hops=inbound.hops)
 
         display = user.display_name or inbound.adv_name or inbound.pubkey[:12]
         hops_str = f"hops={inbound.hops}" if inbound.hops is not None else "hops=?"
@@ -160,6 +160,8 @@ class Dispatcher:
                 await self._enqueue_reply(pk, commands.help_text(topic))
             elif v == "WHO":
                 await self._handle_who(pk)
+            elif v == "PING":
+                await self._handle_ping(inbound)
             elif v == "WHOAMI":
                 await self._handle_whoami(pk)
             elif v == "NAME":
@@ -211,11 +213,21 @@ class Dispatcher:
             await self._enqueue_reply(pk, "No active users yet.")
             return
         now = int(time.time())
-        lines = [
-            f"{u.display_name or u.adv_name or u.pubkey[:8]} ({_fmt_age(now - u.last_seen)})"
-            for u in users
-        ]
+        lines = []
+        for u in users:
+            name = u.display_name or u.adv_name or u.pubkey[:8]
+            age = _fmt_age(now - u.last_seen)
+            hops_str = f" {u.last_hops}hop" if u.last_hops is not None else ""
+            lines.append(f"{name} ({age}{hops_str})")
         await self._enqueue_reply(pk, "\n".join(lines))
+
+    async def _handle_ping(self, inbound: InboundMessage) -> None:
+        hops_str = f"{inbound.hops}hop" if inbound.hops is not None else "?hop"
+        path_str = _fmt_path(inbound.path)
+        if path_str:
+            await self._enqueue_reply(inbound.pubkey, f"PONG {hops_str} via {path_str}")
+        else:
+            await self._enqueue_reply(inbound.pubkey, f"PONG {hops_str}")
 
     async def _notify_admins_new_user(self, display: str, pubkey: str) -> None:
         msg = f"New user: {display} ({pubkey[:12]})"
@@ -437,6 +449,13 @@ def _hop_multiplier(hops: int | None) -> int:
     if hops == 2:
         return 2
     return 1
+
+
+def _fmt_path(path: list[str]) -> str:
+    """Format a mesh path as human-readable node names/prefixes."""
+    if not path:
+        return ""
+    return " → ".join(p[:8] if len(p) > 8 else p for p in path)
 
 
 def _fmt_age(secs: int) -> str:

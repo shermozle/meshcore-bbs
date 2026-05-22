@@ -21,6 +21,7 @@ class User:
     motd_sent: bool = False
     banned: bool = False
     banned_reason: str | None = None
+    last_hops: int | None = None
 
 
 @dataclass

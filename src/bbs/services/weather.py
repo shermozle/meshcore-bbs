@@ -19,17 +19,31 @@ log = logging.getLogger(__name__)
 
 _OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 
-_WMO_CODES: dict[int, str] = {
-    0: "clear",
-    1: "mainly clear", 2: "partly cloudy", 3: "overcast",
-    45: "fog", 48: "icy fog",
-    51: "light drizzle", 53: "drizzle", 55: "heavy drizzle",
-    61: "light rain", 63: "rain", 65: "heavy rain",
-    71: "light snow", 73: "snow", 75: "heavy snow",
-    77: "snow grains",
-    80: "light showers", 81: "showers", 82: "heavy showers",
-    85: "snow showers", 86: "heavy snow showers",
-    95: "thunderstorm", 96: "thunderstorm w/hail", 99: "thunderstorm w/hail",
+_WMO_CODES: dict[int, tuple[str, str]] = {
+    0:  ("☀️", "clear"),
+    1:  ("🌤️", "mainly clear"),
+    2:  ("⛅", "partly cloudy"),
+    3:  ("☁️", "overcast"),
+    45: ("🌫️", "fog"),
+    48: ("🌫️", "icy fog"),
+    51: ("🌦️", "light drizzle"),
+    53: ("🌦️", "drizzle"),
+    55: ("🌧️", "heavy drizzle"),
+    61: ("🌧️", "light rain"),
+    63: ("🌧️", "rain"),
+    65: ("🌧️", "heavy rain"),
+    71: ("🌨️", "light snow"),
+    73: ("🌨️", "snow"),
+    75: ("❄️", "heavy snow"),
+    77: ("🌨️", "snow grains"),
+    80: ("🌦️", "light showers"),
+    81: ("🌧️", "showers"),
+    82: ("⛈️", "heavy showers"),
+    85: ("🌨️", "snow showers"),
+    86: ("❄️", "heavy snow showers"),
+    95: ("⛈️", "thunderstorm"),
+    96: ("⛈️", "thunderstorm w/hail"),
+    99: ("⛈️", "thunderstorm w/hail"),
 }
 
 _WIND_DIRS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
@@ -55,8 +69,10 @@ class WeatherService:
             "latitude": self.cfg.latitude,
             "longitude": self.cfg.longitude,
             "current": "temperature_2m,weather_code,wind_speed_10m,wind_direction_10m",
+            "daily": "precipitation_probability_max",
             "wind_speed_unit": "kmh",
             "timezone": "auto",
+            "forecast_days": 1,
         }
         try:
             async with httpx.AsyncClient(
@@ -81,13 +97,21 @@ def _format_summary(data: dict, location_name: str) -> str:
     wind_spd = cur.get("wind_speed_10m")
     wind_deg = cur.get("wind_direction_10m")
 
+    # Precipitation probability comes from daily[0].
+    daily = data.get("daily", {})
+    precip_list = daily.get("precipitation_probability_max") or []
+    precip = precip_list[0] if precip_list else None
+
     parts: list[str] = [location_name]
+    if code is not None:
+        icon, desc = _WMO_CODES.get(int(code), ("", f"code {code}"))
+        parts.append(f"{icon} {desc}".strip())
     if temp is not None:
         parts.append(f"{temp:.0f}°C")
-    if code is not None:
-        parts.append(_WMO_CODES.get(int(code), f"code {code}"))
+    if precip is not None:
+        parts.append(f"💧{int(precip)}%")
     if wind_spd is not None and wind_deg is not None:
         compass = _WIND_DIRS[round(wind_deg / 45) % 8]
-        parts.append(f"wind {compass} {wind_spd:.0f}km/h")
+        parts.append(f"💨{compass} {wind_spd:.0f}km/h")
 
     return " ".join(parts)

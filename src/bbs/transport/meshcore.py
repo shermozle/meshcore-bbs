@@ -189,6 +189,7 @@ class MeshCoreTransport:
         adv_name = _get_attr(contact, "adv_name") or _get_attr(contact, "name")
         hops_raw = _get_attr(payload, "hops") or _get_attr(payload, "num_hops")
         hops = int(hops_raw) if hops_raw is not None else None
+        path = _extract_path(payload, self._mc)
         await self._events.put(
             TransportEvent(
                 type=TransportEventType.CONTACT_MSG_RECV,
@@ -198,6 +199,7 @@ class MeshCoreTransport:
                     body=body,
                     received_at=int(time.time()),
                     hops=hops,
+                    path=path,
                 ),
             )
         )
@@ -243,6 +245,30 @@ def _normalise_pubkey(c: Any) -> str | None:
     if isinstance(pk, bytes):
         return pk.hex().lower()
     return str(pk).lower()
+
+
+def _extract_path(payload: Any, mc: Any) -> list[str]:
+    """Extract the relay path from a message payload.
+
+    MeshCore stores the relay path as a list of pubkey prefixes in the payload.
+    We resolve each prefix to a contact name where possible.
+    """
+    raw_path = _get_attr(payload, "path") or _get_attr(payload, "relay_path") or []
+    if not raw_path or not isinstance(raw_path, (list, tuple)):
+        return []
+    result: list[str] = []
+    for node in raw_path:
+        node_str = node.hex().lower() if isinstance(node, bytes) else str(node).lower()
+        name: str | None = None
+        if mc is not None:
+            try:
+                contact = mc.get_contact_by_key_prefix(node_str)
+                if contact is not None:
+                    name = _get_attr(contact, "adv_name") or _get_attr(contact, "name")
+            except Exception:
+                pass
+        result.append(name or node_str)
+    return result
 
 
 def _interpret_send_result(res: Any) -> SendOutcome:

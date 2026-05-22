@@ -23,7 +23,6 @@ from .models import Board, BoardPost, Mail, NewsItem, OutboundMessage, User
 log = logging.getLogger(__name__)
 
 
-# Each list entry is a complete migration step. Index 0 is migration 1, etc.
 MIGRATIONS: list[str] = [
     # 1: initial schema
     """
@@ -126,6 +125,8 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX idx_outbound_pending ON outbound_queue(status, priority DESC, next_attempt);
     """,
+    # 2: track last hop count per user
+    "ALTER TABLE users ADD COLUMN last_hops INTEGER;",
 ]
 
 
@@ -213,10 +214,13 @@ class Database:
         assert user is not None
         return user, True
 
-    async def touch_user(self, pubkey: str, now: int) -> None:
+    async def touch_user(self, pubkey: str, now: int, hops: int | None = None) -> None:
         await self.conn.execute(
-            "UPDATE users SET last_seen = ?, msg_count = msg_count + 1 WHERE pubkey = ?",
-            (now, pubkey),
+            """UPDATE users
+               SET last_seen = ?, msg_count = msg_count + 1,
+                   last_hops = COALESCE(?, last_hops)
+               WHERE pubkey = ?""",
+            (now, hops, pubkey),
         )
         await self.conn.commit()
 
@@ -626,6 +630,7 @@ def _user_from_row(row: aiosqlite.Row) -> User:
         motd_sent=bool(row["motd_sent"]),
         banned=bool(row["banned"]),
         banned_reason=row["banned_reason"],
+        last_hops=row["last_hops"],
     )
 
 

@@ -35,6 +35,11 @@ class InboundMessage:
     body: str
     received_at: int
     hops: int | None = None
+    path: list[str] = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.path is None:
+            self.path = []
 
 
 @dataclass
