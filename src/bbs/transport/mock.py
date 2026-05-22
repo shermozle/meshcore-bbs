@@ -45,6 +45,9 @@ class MockTransport:
     def events(self) -> asyncio.Queue[TransportEvent]:
         return self._events
 
+    async def send_advert(self) -> None:
+        return None
+
     async def sync_time(self, epoch: int) -> None:
         return None
 

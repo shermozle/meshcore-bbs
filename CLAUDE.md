@@ -13,14 +13,7 @@ Every time new user-visible features or fixes are committed, go through this lis
 
 ## Deploying to Unraid
 
-After GitHub Actions goes green:
-
-```
-docker compose -f /mnt/user/appdata/meshcore-bbs/docker-compose.unraid.yml pull
-docker compose -f /mnt/user/appdata/meshcore-bbs/docker-compose.unraid.yml up -d
-```
-
-`docker restart` does NOT pick up a new image — the container must be recreated with `up -d`.
+After GitHub Actions goes green, the new image is available on ghcr.io. Unraid picks it up manually: go to the Docker tab in the Unraid UI, click the container, and choose **Update**. Unraid handles the pull and recreate.
 
 ## Key facts
 

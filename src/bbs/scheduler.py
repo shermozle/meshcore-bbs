@@ -118,4 +118,11 @@ def start_all(
         loop("time_sync", 6 * 3600, time_sync_job), name="time_sync",
     ))
 
+    # Periodic advertisement so the BBS stays visible on the mesh.
+    async def advert_job() -> None:
+        await transport.send_advert()
+    tasks.append(asyncio.create_task(
+        loop("advert", 12 * 3600, advert_job), name="advert",
+    ))
+
     return tasks
