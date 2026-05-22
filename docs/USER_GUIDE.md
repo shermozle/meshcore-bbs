@@ -44,6 +44,8 @@ Everything is case-insensitive. Arguments are space-separated.
 | `HELP` | List commands |
 | `HELP <verb>` | Detail on one command |
 | `WHOAMI` | Show your name and pubkey prefix |
+| `WHO` | List the 5 most recently active users with last-seen time and hop count |
+| `PING` | BBS replies `PONG` with your hop count and the mesh path taken |
 | `STATUS` | BBS uptime and queue depth |
 
 ### News and weather

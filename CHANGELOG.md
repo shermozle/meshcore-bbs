@@ -5,6 +5,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] - 2026-05-22
+
+### Added
+- `PING` command: BBS replies `PONG` with hop count and the full mesh relay path, with node pubkey prefixes resolved to contact names where known
+- `WHO` command now shows last known hop count per user (e.g. `alice (5min ago 2hop)`)
+- Weather output now includes a Unicode icon matching the WMO weather code and a daily precipitation probability percentage (e.g. `⛅ partly cloudy 22°C 💧40% 💨NE 15km/h`)
+
+### Changed
+- `last_hops` column added to `users` table (DB migration 2) — stored on every inbound message
+
+---
+
 ## [0.2.0] - 2026-05-22
 
 ### Added
