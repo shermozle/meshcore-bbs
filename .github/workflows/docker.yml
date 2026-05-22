@@ -3,8 +3,27 @@ name: Build and publish Docker image
 on:
   push:
     branches: [main]
+    # Skip rebuilds when only files that have no effect on the runtime
+    # image change. Anything COPYed into the Dockerfile (src/, tests/,
+    # pyproject.toml, uv.lock) or the Dockerfile / workflow itself still
+    # triggers a build. A PR that mixes code + docs still builds, because
+    # paths-ignore only skips when *all* changed files match.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'docker-compose*.yml'
+      - 'LICENSE'
+      - 'deploy/**'
+      - 'scripts/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'docker-compose*.yml'
+      - 'LICENSE'
+      - 'deploy/**'
+      - 'scripts/**'
 
 env:
   REGISTRY: ghcr.io
