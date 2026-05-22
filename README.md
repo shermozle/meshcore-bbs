@@ -52,6 +52,7 @@ DM your BBS from any MeshCore client. The first message produces an onboarding p
 - **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** — Docker, Unraid, and bare-metal deploy instructions
 - **[docs/OPERATIONS.md](docs/OPERATIONS.md)** — day-to-day care: logs, admin ops, metrics, recovery
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — module layout, data flow, failure handling
+- **[docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md)** — Linear → Cursor → PR → dev image loop
 - **[meshcore-bbs-spec.md](meshcore-bbs-spec.md)** — the design spec this was built from
 
 ## Project layout
