@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meshcore-bbs"
-version = "0.3.0"
+version = "0.4.0"
 description = "A bulletin board system reachable over MeshCore mesh DMs"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,6 +33,9 @@ meshcore-bbs = "bbs.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+bbs = ["static/*.html"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

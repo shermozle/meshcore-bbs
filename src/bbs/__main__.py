@@ -31,7 +31,9 @@ from . import __version__
 from .config import Config
 from .db import Database, open_db
 from .dispatcher import Dispatcher
-from .health import HealthState, Metrics, start_health_server, start_metrics_server
+from .dashboard import DashboardDeps
+from .health import Metrics, start_health_server, start_metrics_server
+from .health_state import HealthState
 from .log import configure_logging
 from .outbound import OutboundWorker
 from .rate_limit import RateLimiter
@@ -128,7 +130,19 @@ async def run(args: argparse.Namespace) -> int:
             cfg, db, transport, news, weather, mail_svc, enqueue_reply,
         )
 
-        health_runner = await start_health_server(cfg.health, db, health_state, metrics)
+        dashboard = DashboardDeps(
+            cfg=cfg,
+            db=db,
+            state=health_state,
+            dispatcher=dispatcher,
+            outbound=outbound,
+            transport=transport,
+            metrics=metrics,
+            log_path=cfg.logging.path,
+        )
+        health_runner = await start_health_server(
+            cfg.health, db, health_state, metrics, dashboard,
+        )
         metrics_runner = await start_metrics_server(cfg.metrics, metrics) if metrics else None
 
         await db.audit(None, "startup", f"version={__version__} pubkey={transport.self_pubkey[:12]}")

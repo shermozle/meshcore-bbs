@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MeshCore BBS</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --border: #2d3a4d;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --ok: #3dd68c;
+      --warn: #f5a623;
+      --bad: #f56565;
+      --accent: #5b9fd4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    header h1 { margin: 0; font-size: 1.1rem; font-weight: 600; }
+    header .meta { color: var(--muted); font-size: 0.85rem; }
+    .status-pill {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .status-pill.ok { background: rgba(61,214,140,.2); color: var(--ok); }
+    .status-pill.bad { background: rgba(245,101,101,.2); color: var(--bad); }
+    nav {
+      display: flex;
+      gap: 4px;
+      padding: 8px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    nav button {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      padding: 8px 14px;
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+    nav button.active { background: var(--border); color: var(--text); }
+    main { padding: 16px 20px 40px; max-width: 1200px; margin: 0 auto; }
+    .tab { display: none; }
+    .tab.active { display: block; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+    .card .label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: .04em; }
+    .card .value { font-size: 1.35rem; font-weight: 600; margin-top: 4px; }
+    .card .sub { color: var(--muted); font-size: 0.8rem; margin-top: 2px; }
+    h2 { font-size: 0.95rem; margin: 20px 0 10px; color: var(--muted); font-weight: 600; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      font-size: 0.85rem;
+    }
+    th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 500; background: rgba(0,0,0,.15); }
+    tr:last-child td { border-bottom: none; }
+    .chart-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+    .chart-box {
+      flex: 1;
+      min-width: 280px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .chart-box h3 { margin: 0 0 10px; font-size: 0.85rem; color: var(--muted); }
+    .bar-chart { display: flex; align-items: flex-end; gap: 4px; height: 120px; }
+    .bar-chart .bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+    .bar-chart .bar {
+      width: 100%;
+      max-width: 28px;
+      background: var(--accent);
+      border-radius: 3px 3px 0 0;
+      min-height: 2px;
+    }
+    .bar-chart .bar-label {
+      font-size: 0.65rem;
+      color: var(--muted);
+      margin-top: 4px;
+      transform: rotate(-45deg);
+      white-space: nowrap;
+      max-width: 36px;
+      overflow: hidden;
+    }
+    #log-view {
+      background: #0a0e12;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      padding: 12px;
+      height: 420px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .log-controls { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
+    .log-controls label { color: var(--muted); font-size: 0.85rem; }
+    .problems { color: var(--bad); font-size: 0.85rem; margin-top: 8px; }
+    .tag { font-size: 0.7rem; padding: 1px 6px; border-radius: 4px; background: var(--border); }
+    .tag.banned { background: rgba(245,101,101,.25); color: var(--bad); }
+    .refresh-note { color: var(--muted); font-size: 0.75rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1 id="bbs-title">MeshCore BBS</h1>
+      <div class="meta" id="bbs-meta">—</div>
+    </div>
+    <div>
+      <span class="status-pill" id="health-pill">—</span>
+      <span class="refresh-note" id="last-refresh"></span>
+    </div>
+  </header>
+  <nav>
+    <button type="button" class="active" data-tab="overview">Overview</button>
+    <button type="button" data-tab="usage">Usage</button>
+    <button type="button" data-tab="activity">Activity</button>
+    <button type="button" data-tab="logs">Logs</button>
+  </nav>
+  <main>
+    <section id="tab-overview" class="tab active">
+      <div class="cards" id="overview-cards"></div>
+      <div id="overview-problems" class="problems"></div>
+      <h2>Outbound queue</h2>
+      <div class="cards" id="queue-cards"></div>
+    </section>
+    <section id="tab-usage" class="tab">
+      <div class="chart-row" id="usage-charts"></div>
+      <h2>Database</h2>
+      <div class="cards" id="stats-cards"></div>
+    </section>
+    <section id="tab-activity" class="tab">
+      <h2>Recent users</h2>
+      <table><thead><tr>
+        <th>User</th><th>Msgs</th><th>Last seen</th><th>Hops</th><th></th>
+      </tr></thead><tbody id="users-tbody"></tbody></table>
+      <h2>Pending outbound</h2>
+      <table><thead><tr>
+        <th>ID</th><th>To</th><th>Attempts</th><th>Age</th><th>Pri</th>
+      </tr></thead><tbody id="pending-tbody"></tbody></table>
+      <h2>Audit log</h2>
+      <table><thead><tr>
+        <th>When</th><th>Actor</th><th>Action</th><th>Detail</th>
+      </tr></thead><tbody id="audit-tbody"></tbody></table>
+    </section>
+    <section id="tab-logs" class="tab">
+      <div class="log-controls">
+        <label><input type="checkbox" id="log-follow" checked> Follow (live tail)</label>
+        <label><input type="checkbox" id="log-pause"> Pause</label>
+        <button type="button" id="log-clear">Clear view</button>
+        <span class="refresh-note" id="log-path"></span>
+      </div>
+      <div id="log-view"></div>
+    </section>
+  </main>
+  <script>
+    const REFRESH_MS = 5000;
+    let logOffset = 0;
+    let logEventSource = null;
+
+    function fmtUptime(sec) {
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      if (h) return `${h}h ${m}m`;
+      if (m) return `${m}m ${s}s`;
+      return `${s}s`;
+    }
+    function fmtRel(ts) {
+      const d = Math.max(0, Math.floor(Date.now() / 1000) - ts);
+      if (d < 60) return `${d}s ago`;
+      if (d < 3600) return `${Math.floor(d / 60)}m ago`;
+      if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
+      return `${Math.floor(d / 86400)}d ago`;
+    }
+    function fmtTime(ts) {
+      return new Date(ts * 1000).toLocaleString();
+    }
+
+    function setTab(name) {
+      document.querySelectorAll('nav button').forEach(b => {
+        b.classList.toggle('active', b.dataset.tab === name);
+      });
+      document.querySelectorAll('.tab').forEach(t => {
+        t.classList.toggle('active', t.id === 'tab-' + name);
+      });
+      if (name === 'logs') startLogStream();
+      else stopLogStream();
+    }
+
+    document.querySelectorAll('nav button').forEach(b => {
+      b.addEventListener('click', () => setTab(b.dataset.tab));
+    });
+
+    function renderBars(container, series, labelKey, valueKey) {
+      const max = Math.max(1, ...series.map(x => x[valueKey]));
+      container.innerHTML = '';
+      const wrap = document.createElement('div');
+      wrap.className = 'bar-chart';
+      series.forEach(item => {
+        const col = document.createElement('div');
+        col.className = 'bar-wrap';
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        bar.style.height = `${Math.round((item[valueKey] / max) * 100)}%`;
+        bar.title = `${item[labelKey]}: ${item[valueKey]}`;
+        const lbl = document.createElement('div');
+        lbl.className = 'bar-label';
+        lbl.textContent = (item[labelKey] || '').slice(5);
+        col.appendChild(bar);
+        col.appendChild(lbl);
+        wrap.appendChild(col);
+      });
+      container.appendChild(wrap);
+    }
+
+    function chartBox(title, id) {
+      const box = document.createElement('div');
+      box.className = 'chart-box';
+      box.innerHTML = `<h3>${title}</h3><div id="${id}"></div>`;
+      return box;
+    }
+
+    async function fetchJson(path) {
+      const r = await fetch(path);
+      if (!r.ok) throw new Error(path + ' ' + r.status);
+      return r.json();
+    }
+
+    async function refresh() {
+      try {
+        const [status, stats, activity, history] = await Promise.all([
+          fetchJson('/api/status'),
+          fetchJson('/api/stats'),
+          fetchJson('/api/activity'),
+          fetchJson('/api/history'),
+        ]);
+        document.getElementById('bbs-title').textContent = status.bbs_name;
+        document.getElementById('bbs-meta').textContent =
+          `v${status.version} · ${status.self_pubkey_prefix}… · ${status.location}`;
+        const pill = document.getElementById('health-pill');
+        pill.textContent = status.status;
+        pill.className = 'status-pill ' + (status.status === 'ok' ? 'ok' : 'bad');
+        document.getElementById('last-refresh').textContent =
+          'Updated ' + new Date().toLocaleTimeString();
+
+        const prob = document.getElementById('overview-problems');
+        prob.textContent = status.problems.length
+          ? 'Problems: ' + status.problems.join(', ')
+          : '';
+
+        const cards = [
+          ['Uptime', fmtUptime(status.uptime_seconds), ''],
+          ['Transport', status.transport_connected ? 'Connected' : 'Disconnected', ''],
+          ['Last event', status.last_event_age_seconds != null
+            ? fmtRel(Math.floor(Date.now()/1000) - status.last_event_age_seconds) : '—', ''],
+          ['Contacts', `${status.contacts_used}/${status.contacts_capacity}`, 'radio book'],
+          ['Queue', String(status.outbound_pending), 'pending sends'],
+          ['Sends OK', String(status.outbound_sends.succeeded),
+            `${status.outbound_sends.attempted} tried`],
+        ];
+        document.getElementById('overview-cards').innerHTML = cards.map(([l,v,s]) =>
+          `<div class="card"><div class="label">${l}</div><div class="value">${v}</div>` +
+          (s ? `<div class="sub">${s}</div>` : '') + '</div>'
+        ).join('');
+
+        const q = stats.outbound_by_status;
+        document.getElementById('queue-cards').innerHTML =
+          Object.entries(q).map(([k,v]) =>
+            `<div class="card"><div class="label">${k}</div><div class="value">${v}</div></div>`
+          ).join('') || '<div class="card"><div class="label">empty</div><div class="value">0</div></div>';
+
+        const sc = stats.counts;
+        document.getElementById('stats-cards').innerHTML = [
+          ['Users', sc.users], ['Onboarded', sc.onboarded], ['Banned', sc.banned],
+          ['Posts', sc.board_posts], ['Unread mail', sc.mail_unread],
+          ['News items', sc.news_items], ['Audit rows', sc.audit_rows],
+        ].map(([l,v]) =>
+          `<div class="card"><div class="label">${l}</div><div class="value">${v}</div></div>`
+        ).join('');
+
+        const charts = document.getElementById('usage-charts');
+        charts.innerHTML = '';
+        const c1 = chartBox('Active users (by day)', 'chart-active');
+        const c2 = chartBox('New users (by day)', 'chart-new');
+        charts.appendChild(c1);
+        charts.appendChild(c2);
+        renderBars(c1.querySelector('div'), history.active_users_by_day, 'day', 'count');
+        renderBars(c2.querySelector('div'), history.new_users_by_day, 'day', 'count');
+
+        document.getElementById('users-tbody').innerHTML = activity.recent_users.map(u =>
+          `<tr><td>${escapeHtml(u.who)}</td><td>${u.msg_count}</td>` +
+          `<td>${fmtRel(u.last_seen)}</td><td>${u.last_hops ?? '—'}</td><td>` +
+          (u.banned ? '<span class="tag banned">banned</span>' : '') +
+          '</td></tr>'
+        ).join('');
+
+        document.getElementById('pending-tbody').innerHTML = activity.pending_outbound.map(m =>
+          `<tr><td>${m.id}</td><td>${m.to_prefix}…</td><td>${m.attempts}</td>` +
+          `<td>${fmtRel(m.enqueued_at)}</td><td>${m.priority}</td></tr>`
+        ).join('') || '<tr><td colspan="5">No pending messages</td></tr>';
+
+        document.getElementById('audit-tbody').innerHTML = activity.audit.map(a =>
+          `<tr><td>${fmtTime(a.ts)}</td><td>${a.actor || '—'}</td>` +
+          `<td>${escapeHtml(a.action)}</td><td>${escapeHtml(a.detail || '')}</td></tr>`
+        ).join('');
+      } catch (e) {
+        console.error(e);
+        document.getElementById('overview-problems').textContent = 'Refresh failed: ' + e.message;
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function appendLogLines(lines) {
+      const el = document.getElementById('log-view');
+      if (document.getElementById('log-pause').checked) return;
+      lines.forEach(line => {
+        el.appendChild(document.createTextNode(line + '\n'));
+      });
+      if (document.getElementById('log-follow').checked) {
+        el.scrollTop = el.scrollHeight;
+      }
+    }
+
+    async function loadLogTail() {
+      try {
+        const data = await fetchJson('/api/logs?offset=0&lines=300');
+        document.getElementById('log-path').textContent = data.path || 'no log file';
+        logOffset = data.offset;
+        const el = document.getElementById('log-view');
+        el.textContent = '';
+        appendLogLines(data.lines);
+      } catch (e) {
+        document.getElementById('log-path').textContent = 'log fetch failed';
+      }
+    }
+
+    function stopLogStream() {
+      if (logEventSource) {
+        logEventSource.close();
+        logEventSource = null;
+      }
+    }
+
+    function startLogStream() {
+      stopLogStream();
+      loadLogTail();
+      if (!document.getElementById('log-follow').checked) return;
+      logEventSource = new EventSource('/api/logs/stream');
+      logEventSource.onmessage = (ev) => appendLogLines([ev.data]);
+      logEventSource.onerror = () => {
+        stopLogStream();
+        setTimeout(startLogStream, 3000);
+      };
+    }
+
+    document.getElementById('log-clear').addEventListener('click', () => {
+      document.getElementById('log-view').textContent = '';
+    });
+
+    setInterval(refresh, REFRESH_MS);
+    refresh();
+  </script>
+</body>
+</html>

@@ -5,6 +5,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.0] - 2026-05-22
+
+### Added
+- Web dashboard on the health HTTP port (`/` redirects to `/dashboard`): live BBS status, usage charts, activity tables, and a log tail tab
+- JSON API under `/api/status`, `/api/stats`, `/api/activity`, `/api/history`, and `/api/logs` (plus SSE log stream at `/api/logs/stream`)
+- `/health` now returns the same rich status payload used by the dashboard (still 200/503 for container health checks)
+
+---
+
 ## [0.3.0] - 2026-05-22
 
 ### Added
