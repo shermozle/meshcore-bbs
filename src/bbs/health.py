@@ -29,16 +29,9 @@ from prometheus_client import (
 
 from .config import HealthConfig, MetricsConfig
 from .db import Database
+from .health_state import HEALTH_HEARTBEAT_THRESHOLD, HealthState
 
 log = logging.getLogger(__name__)
-
-HEALTH_HEARTBEAT_THRESHOLD = 600  # seconds
-
-
-@dataclass
-class HealthState:
-    transport_connected: bool = False
-    last_event_at: float = 0.0
 
 
 class Metrics:
@@ -73,11 +66,23 @@ class Metrics:
 
 
 async def make_health_app(
-    db: Database, state: HealthState, metrics: Metrics | None
+    db: Database,
+    state: HealthState,
+    metrics: Metrics | None,
+    dashboard: object | None = None,
 ) -> web.Application:
+    from .dashboard import DashboardDeps, register_dashboard_routes
+
     app = web.Application()
 
     async def health(_: web.Request) -> web.Response:
+        if dashboard is not None:
+            from .dashboard import build_status
+
+            payload = await build_status(dashboard)  # type: ignore[arg-type]
+            status_code = 200 if payload["status"] == "ok" else 503
+            return web.json_response(payload, status=status_code)
+
         now = time.time()
         problems: list[str] = []
         if not state.transport_connected:
@@ -95,10 +100,15 @@ async def make_health_app(
         return web.json_response({"status": "ok"})
 
     async def root(_: web.Request) -> web.Response:
+        if dashboard is not None:
+            raise web.HTTPFound("/dashboard")
         return web.Response(text="meshcore-bbs\n")
 
     app.router.add_get("/", root)
     app.router.add_get("/health", health)
+
+    if dashboard is not None:
+        register_dashboard_routes(app, dashboard)  # type: ignore[arg-type]
 
     if metrics is not None:
         async def metrics_handler(_: web.Request) -> web.Response:
@@ -110,9 +120,13 @@ async def make_health_app(
 
 
 async def start_health_server(
-    cfg: HealthConfig, db: Database, state: HealthState, metrics: Metrics | None
+    cfg: HealthConfig,
+    db: Database,
+    state: HealthState,
+    metrics: Metrics | None,
+    dashboard: object | None = None,
 ) -> web.AppRunner:
-    app = await make_health_app(db, state, metrics)
+    app = await make_health_app(db, state, metrics, dashboard)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, cfg.http_host, cfg.http_port)

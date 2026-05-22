@@ -13,6 +13,7 @@ Authentication is implicit: a user's identity is their MeshCore Curve25519 publi
 - **Admin commands** (BAN/UNBAN, BOARD ADD/DEL, BROADCAST)
 - **Onboarding flow** — first-time users pick a display name
 - **Rate limiting**, **audit logging**, **persistent outbound queue**
+- **Web dashboard** on the health port — live status, usage history, log tail
 - **Health endpoint** for container orchestration
 - **Prometheus metrics** (optional)
 
@@ -70,6 +71,7 @@ src/bbs/                  Application code
   onboarding.py           First-contact name-setting flow
   scheduler.py            Background jobs
   health.py               HTTP /health + /metrics
+  dashboard.py            Web dashboard API + UI
   format.py               Packet splitting
   services/               News, weather, boards, mail, admin
   transport/              MeshCore interface (real + mock)

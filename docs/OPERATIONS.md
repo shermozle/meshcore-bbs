@@ -112,6 +112,21 @@ Always start with `curl http://localhost:8080/health` for a quick diagnostic.
 
 ---
 
+## Web dashboard
+
+The health HTTP port (8080 in the container, often mapped to 8888 on Unraid) serves a browser dashboard:
+
+- **`/dashboard`** — overview, usage charts, recent users/audit, log tail
+- **`/api/status`**, **`/api/stats`**, **`/api/activity`**, **`/api/history`** — JSON for scripts or automation
+- **`/api/logs`** — tail `logging.path` (default `/data/bbs.log`)
+- **`/api/logs/stream`** — Server-Sent Events live log stream
+
+`GET /` redirects to `/dashboard`. Container health checks still use `/health` (now returns the same status fields as `/api/status`).
+
+No authentication is built in — bind to a trusted LAN or put a reverse proxy in front if the port is reachable from the internet.
+
+---
+
 ## Metrics (Prometheus)
 
 Enable in config:

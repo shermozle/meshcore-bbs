@@ -19,7 +19,7 @@
   <Project>https://github.com/shermozle/meshcore-bbs</Project>
   <Overview>A bulletin board system reachable over MeshCore mesh DMs. Provides news, weather, message boards, and user-to-user mail to any MeshCore client.</Overview>
   <Category>Communications:</Category>
-  <WebUI>http://[IP]:[PORT:8080]/health</WebUI>
+  <WebUI>http://[IP]:[PORT:8080]/dashboard</WebUI>
   <TemplateURL/>
   <Icon/>
   <ExtraParams>--device=/dev/serial/by-id/REPLACE_ME:/dev/ttyACM0 --group-add dialout</ExtraParams>
