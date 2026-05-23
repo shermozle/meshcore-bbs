@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.2] - 2026-05-23
+
+### Changed
+- Web dashboard log tab now expands to fill the available viewport (full width and height) instead of a fixed 420px panel inside a 1200px column
+
+---
+
 ## [0.4.1] - 2026-05-23
 
 ### Added
