@@ -75,3 +75,29 @@ class TestOutboundQueue:
             await db.enqueue_outbound(f"pk{i}", f"msg{i}", int(time.time()))
         depth = await db.outbound_pending_depth()
         assert depth == 5
+
+    async def test_retry_requeue_goes_to_back(self, db):
+        now = int(time.time())
+        old_id = await db.enqueue_outbound("pk1", "first", now - 100, priority=10)
+        await db.enqueue_outbound("pk2", "second", now, priority=10)
+        await db.reschedule_outbound(old_id, now, 1)
+        claimed = await db.claim_next_outbound(now)
+        assert claimed is not None
+        assert claimed.to_pubkey == "pk2"
+
+    async def test_failed_send_lets_other_recipients_through(self, db, transport, cfg):
+        """A NO_ACK retry must not block messages to other nodes."""
+        transport.next_send_outcome["pk1"] = SendOutcome.NO_ACK
+        now = int(time.time())
+        await db.enqueue_outbound("pk1", "stuck", now, priority=10)
+        await db.enqueue_outbound("pk2", "ok", now, priority=10)
+        worker = OutboundWorker(db, transport, cfg.limits)
+        worker.start()
+        for _ in range(50):
+            await asyncio.sleep(0.02)
+            if any(pk == "pk2" for pk, _ in transport.sent):
+                break
+        await worker.stop(drain_timeout_seconds=1.0)
+        assert ("pk2", "ok") in transport.sent
+        idx_pk2 = transport.sent.index(("pk2", "ok"))
+        assert transport.sent[:idx_pk2].count(("pk1", "stuck")) <= 1

@@ -58,6 +58,7 @@ class Dispatcher:
         self.mail = mail
         self.admin = admin
         self.started_at = started_at
+        self._reply_command: str | None = None
 
     async def handle_inbound(self, inbound: InboundMessage) -> None:
         if inbound.pubkey == self.transport.self_pubkey.lower():
@@ -154,6 +155,7 @@ class Dispatcher:
 
         log.info("cmd %s from %s (%s)", v, user_display, pk[:12])
 
+        self._reply_command = v
         try:
             if v == "HELP":
                 topic = parsed.args[0] if parsed.args else None
@@ -198,6 +200,8 @@ class Dispatcher:
         except Exception:
             log.exception("command handler crashed: verb=%s", v)
             await self._enqueue_reply(pk, "! Internal error.")
+        finally:
+            self._reply_command = None
 
     # -- individual handlers --------------------------------------------------
 
@@ -442,16 +446,27 @@ class Dispatcher:
 
     # -- enqueueing -----------------------------------------------------------
 
-    async def _enqueue_reply(self, pk: str, text: str, priority: int = PRIORITY_NORMAL) -> None:
+    async def _enqueue_reply(
+        self,
+        pk: str,
+        text: str,
+        priority: int = PRIORITY_NORMAL,
+        *,
+        trigger_command: str | None = None,
+    ) -> None:
         depth = await self.db.outbound_pending_depth()
         if depth >= self.cfg.limits.outbound_queue_max_depth and priority < PRIORITY_NORMAL:
             log.warning("outbound queue depth %d; dropping low-priority msg to %s",
                         depth, pk[:8])
             return
+        cmd = trigger_command if trigger_command is not None else self._reply_command
+        msg_kind = "notification" if priority < PRIORITY_NORMAL else "response"
         packets = split_packets(text)
         now = int(time.time())
         for p in packets:
-            await self.db.enqueue_outbound(pk, p, now, priority=priority)
+            await self.db.enqueue_outbound(
+                pk, p, now, priority=priority, trigger_command=cmd, msg_kind=msg_kind,
+            )
 
 
 def _maybe_int(args: list[str], idx: int, default: int) -> int:

@@ -72,3 +72,5 @@ class OutboundMessage:
     next_attempt: int
     status: str
     priority: int  # higher = sooner
+    trigger_command: str | None = None
+    msg_kind: str = "response"

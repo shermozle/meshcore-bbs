@@ -16,6 +16,7 @@ from .db import Database
 from .dispatcher import Dispatcher
 from .health import Metrics
 from .health_state import HEALTH_HEARTBEAT_THRESHOLD, HealthState
+from .dispatcher import _fmt_path
 from .outbound import OutboundWorker
 from .transport.base import Transport
 
@@ -207,6 +208,51 @@ async def build_activity(deps: DashboardDeps) -> dict:
     return {"recent_users": users, "audit": audit, "pending_outbound": pending_outbound}
 
 
+async def build_queue(deps: DashboardDeps) -> dict:
+    """Full pending outbound queue with paths and message context."""
+    messages = await deps.db.list_pending_outbound(limit=100)
+    path_cache: dict[str, list[str]] = {}
+    name_cache: dict[str, str | None] = {}
+    items: list[dict] = []
+    now = int(time.time())
+
+    for msg in messages:
+        pk = msg.to_pubkey
+        if pk not in path_cache:
+            try:
+                path_cache[pk] = await deps.transport.resolve_inbound_path(pk)
+            except Exception:
+                log.debug("path resolve failed for %s", pk[:12], exc_info=True)
+                path_cache[pk] = []
+        if pk not in name_cache:
+            user = await deps.db.get_user(pk)
+            name_cache[pk] = user.display_name if user else None
+
+        if msg.attempts > 0:
+            nature = "retry"
+        else:
+            nature = msg.msg_kind
+
+        path = path_cache[pk]
+        items.append({
+            "id": msg.id,
+            "to_pubkey_prefix": pk[:12],
+            "to_name": name_cache[pk],
+            "path": path,
+            "path_display": _fmt_path(path) or None,
+            "nature": nature,
+            "trigger_command": msg.trigger_command,
+            "attempts": msg.attempts,
+            "priority": msg.priority,
+            "enqueued_at": msg.enqueued_at,
+            "next_attempt": msg.next_attempt,
+            "ready": msg.next_attempt <= now,
+            "body_preview": msg.body[:80],
+        })
+
+    return {"pending": items, "depth": len(items)}
+
+
 async def build_history(deps: DashboardDeps) -> dict:
     since = int(time.time()) - _HISTORY_DAYS * 86400
 
@@ -302,6 +348,9 @@ def register_dashboard_routes(app: web.Application, deps: DashboardDeps) -> None
     async def api_activity(_: web.Request) -> web.Response:
         return web.json_response(await build_activity(deps))
 
+    async def api_queue(_: web.Request) -> web.Response:
+        return web.json_response(await build_queue(deps))
+
     async def api_history(_: web.Request) -> web.Response:
         return web.json_response(await build_history(deps))
 
@@ -376,6 +425,7 @@ def register_dashboard_routes(app: web.Application, deps: DashboardDeps) -> None
     app.router.add_post("/api/advert", api_advert)
     app.router.add_get("/api/stats", api_stats)
     app.router.add_get("/api/activity", api_activity)
+    app.router.add_get("/api/queue", api_queue)
     app.router.add_get("/api/history", api_history)
     app.router.add_get("/api/logs", api_logs)
     app.router.add_get("/api/logs/stream", api_logs_stream)

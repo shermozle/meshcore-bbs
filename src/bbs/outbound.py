@@ -13,6 +13,8 @@ Throttling:
 
 Retry:
   - send returning NO_ACK or ERROR triggers exponential backoff.
+  - Retries are moved to the back of the pending queue (same priority tier) so
+    other recipients are not starved by a flaky node.
   - After MAX_ATTEMPTS, the row is marked 'failed' and an audit entry written.
 
 Drop:

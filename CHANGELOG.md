@@ -5,6 +5,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.0] - 2026-05-23
+
+### Added
+- Web dashboard **Queue** tab and `GET /api/queue`: pending outbound messages with recipient, resolved mesh path, message type (response / notification / retry), triggering command, and body preview
+
+### Changed
+- Outbound send retries and per-recipient throttle deferrals move the row to the **back** of the pending queue (same priority) so a flaky node does not starve other recipients
+
+---
+
 ## [0.5.0] - 2026-05-23
 
 ### Added
