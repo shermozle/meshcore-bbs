@@ -14,6 +14,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - `NAME` help and welcome text mention emoji in allowed characters
 
+### Fixed
+- `PING` again includes the full inbound mesh path in `PONG` replies, with relay hashes resolved to contact names where known (via path discovery when not present on the packet)
+
 ---
 
 ## [0.4.0] - 2026-05-22

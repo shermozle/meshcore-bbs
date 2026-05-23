@@ -168,6 +168,26 @@ class MeshCoreTransport:
         except Exception as e:
             log.warning("remove_contact(%s) failed: %s", pubkey[:8], e)
 
+    async def resolve_inbound_path(self, pubkey: str) -> list[str]:
+        """Return the inbound mesh path for *pubkey* via path discovery."""
+        if self._mc is None:
+            return []
+        try:
+            event = await self._mc.commands.send_path_discovery_sync(
+                pubkey, min_timeout=2.0,
+            )
+        except Exception as e:
+            log.warning("path discovery failed for %s: %s", pubkey[:12], e)
+            return []
+        if event is None or event.is_error():
+            return []
+        payload = event.payload if hasattr(event, "payload") else event
+        in_path = _get_attr(payload, "in_path") or ""
+        hash_len = _get_attr(payload, "in_path_hash_len") or 1
+        if in_path:
+            return _resolve_path_hex(str(in_path), int(hash_len), self._mc)
+        return []
+
     # -- internals ------------------------------------------------------------
 
     def _on_contact_msg(self, event: Any) -> None:
@@ -262,10 +282,62 @@ def _normalise_pubkey(c: Any) -> str | None:
 
 
 def _extract_path(payload: Any, mc: Any) -> list[str]:
-    """CONTACT_MSG_RECV packets carry only a hop count, not individual node IDs.
-    Individual relay identities are only available in trace packets, which are
-    separate requests. Always returns [] for now."""
-    return []
+    """Best-effort relay path from an inbound message payload.
+
+    CONTACT_MSG_RECV normally carries only ``path_len`` (hop count). If the
+    firmware ever includes explicit path node IDs, resolve them here.
+    """
+    raw_path = _get_attr(payload, "path") or _get_attr(payload, "relay_path")
+    if not raw_path:
+        return []
+    if isinstance(raw_path, str):
+        hash_len = _get_attr(payload, "path_hash_size") or 1
+        return _resolve_path_hex(raw_path, int(hash_len), mc)
+    if not isinstance(raw_path, (list, tuple)):
+        return []
+    result: list[str] = []
+    for node in raw_path:
+        if isinstance(node, dict):
+            node_hash = _get_attr(node, "hash") or ""
+            result.append(_resolve_hash_to_name(str(node_hash), mc))
+            continue
+        node_str = node.hex().lower() if isinstance(node, bytes) else str(node).lower()
+        result.append(_resolve_hash_to_name(node_str, mc))
+    return result
+
+
+def _resolve_hash_to_name(node_hash: str, mc: Any) -> str:
+    """Map a path hash/prefix to a contact name when possible."""
+    node_hash = node_hash.lower().strip()
+    if not node_hash:
+        return "?"
+    if mc is not None:
+        try:
+            contact = mc.get_contact_by_key_prefix(node_hash)
+            if contact is not None:
+                name = _get_attr(contact, "adv_name") or _get_attr(contact, "name")
+                if name:
+                    return str(name)
+        except Exception:
+            pass
+    # Show a short hash label when no contact name is known.
+    return node_hash[:8] if len(node_hash) > 8 else node_hash
+
+
+def _resolve_path_hex(path_hex: str, hash_len: int, mc: Any) -> list[str]:
+    """Split a concatenated path hex string into resolved node labels."""
+    path_hex = path_hex.lower().strip()
+    if not path_hex:
+        return []
+    hash_len = max(1, int(hash_len))
+    chunk_chars = hash_len * 2
+    nodes: list[str] = []
+    for offset in range(0, len(path_hex), chunk_chars):
+        chunk = path_hex[offset : offset + chunk_chars]
+        if len(chunk) < chunk_chars:
+            break
+        nodes.append(_resolve_hash_to_name(chunk, mc))
+    return nodes
 
 
 def _interpret_send_result(res: Any) -> SendOutcome:
