@@ -24,6 +24,7 @@ class MockTransport:
         self._contact_pubkeys: set[str] = set()
         self._contact_capacity = contact_capacity_max
         self._inbound_paths: dict[str, list[str]] = {}
+        self.adverts_sent: list[bool] = []
         self._started = False
         self._stopped = False
 
@@ -46,8 +47,8 @@ class MockTransport:
     def events(self) -> asyncio.Queue[TransportEvent]:
         return self._events
 
-    async def send_advert(self) -> None:
-        return None
+    async def send_advert(self, *, flood: bool = False) -> None:
+        self.adverts_sent.append(flood)
 
     async def sync_time(self, epoch: int) -> None:
         return None

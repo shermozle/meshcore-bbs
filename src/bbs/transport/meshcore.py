@@ -134,11 +134,11 @@ class MeshCoreTransport:
             return SendOutcome.ERROR
         return _interpret_send_result(res)
 
-    async def send_advert(self) -> None:
+    async def send_advert(self, *, flood: bool = False) -> None:
         if self._mc is not None:
             try:
-                await self._mc.commands.send_advert()
-                log.info("advertisement sent")
+                await self._mc.commands.send_advert(flood=flood)
+                log.info("advertisement sent (flood=%s)", flood)
             except Exception as e:
                 log.warning("send_advert failed: %s", e)
 
