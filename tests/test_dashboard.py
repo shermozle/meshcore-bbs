@@ -170,6 +170,7 @@ async def test_dashboard_html(dashboard_app):
         assert "/api/advert" in text
         assert "log-hide-dashboard" in text
         assert "CHART_BAR_PX" in text
+        assert "bar-value" in text
         assert "main:has(#tab-logs.active)" in text
         assert "height: 420px" not in text
 
