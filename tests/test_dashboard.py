@@ -9,7 +9,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from bbs import __version__
-from bbs.dashboard import DashboardDeps, build_history, build_stats, build_status
+from bbs.dashboard import DashboardDeps, build_history, build_queue, build_stats, build_status
 from bbs.health import make_health_app
 from bbs.health_state import HealthState
 
@@ -65,6 +65,48 @@ async def test_api_status(dashboard_app):
 
 
 @pytest.mark.asyncio
+async def test_api_queue(dashboard_app, db, transport, outbound_worker):
+    await outbound_worker.stop(drain_timeout_seconds=1.0)
+    app, _, _ = dashboard_app
+    now = int(time.time())
+    await db.enqueue_outbound(
+        "abc123", "hello", now, priority=10, trigger_command="WHO", msg_kind="response",
+    )
+    transport._inbound_paths["abc123"] = ["NodeA", "NodeB"]  # noqa: SLF001
+    async with TestClient(TestServer(app)) as client:
+        data = await (await client.get("/api/queue")).json()
+        assert data["depth"] == 1
+        row = data["pending"][0]
+        assert row["trigger_command"] == "WHO"
+        assert row["nature"] == "response"
+        assert row["path_display"] == "NodeA → NodeB"
+
+
+@pytest.mark.asyncio
+async def test_api_queue_actions(dashboard_app, db, transport, outbound_worker):
+    await outbound_worker.stop(drain_timeout_seconds=1.0)
+    app, _, _ = dashboard_app
+    now = int(time.time())
+    msg_id = await db.enqueue_outbound("abc123", "hello", now)
+    msg_id2 = await db.enqueue_outbound("abc123", "second", now)
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post(f"/api/queue/{msg_id}/remove")
+        assert resp.status == 200
+        assert (await resp.json())["ok"] is True
+        cur = await db.execute("SELECT status FROM outbound_queue WHERE id = ?", (msg_id,))
+        assert (await cur.fetchone())[0] == "cancelled"
+
+        resp = await client.post("/api/queue/99999/move-back")
+        assert resp.status == 404
+
+        resp = await client.post(f"/api/queue/{msg_id2}/pause-user")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["pause_seconds"] == 30 * 60
+        assert await db.get_outbound_pause_until("abc123") is not None
+
+
+@pytest.mark.asyncio
 async def test_api_stats_and_history(dashboard_app, db):
     app, _, _ = dashboard_app
     now = int(time.time())
@@ -108,6 +150,9 @@ async def test_dashboard_html(dashboard_app):
         assert "/api/status" in text
         assert "hdr-last-event" in text
         assert "hdr-queue" in text
+        assert 'data-tab="queue"' in text
+        assert "/api/queue" in text
+        assert "data-queue-action" in text
         assert "btn-flood-advert" in text
         assert "/api/advert" in text
         assert "log-hide-dashboard" in text
@@ -138,3 +183,6 @@ async def test_build_functions_directly(cfg, db, transport, dispatcher, outbound
     assert "counts" in stats
     history = await build_history(deps)
     assert history["days"] == 14
+    await db.enqueue_outbound("pk99", "x", int(time.time()), trigger_command="PING")
+    queue = await build_queue(deps)
+    assert queue["depth"] >= 1

@@ -16,6 +16,8 @@ from .db import Database
 from .dispatcher import Dispatcher
 from .health import Metrics
 from .health_state import HEALTH_HEARTBEAT_THRESHOLD, HealthState
+from .db import OUTBOUND_PAUSE_SECONDS
+from .dispatcher import _fmt_path
 from .outbound import OutboundWorker
 from .transport.base import Transport
 
@@ -207,6 +209,56 @@ async def build_activity(deps: DashboardDeps) -> dict:
     return {"recent_users": users, "audit": audit, "pending_outbound": pending_outbound}
 
 
+async def build_queue(deps: DashboardDeps) -> dict:
+    """Full pending outbound queue with paths and message context."""
+    messages = await deps.db.list_pending_outbound(limit=100)
+    path_cache: dict[str, list[str]] = {}
+    name_cache: dict[str, str | None] = {}
+    pause_cache: dict[str, int | None] = {}
+    items: list[dict] = []
+    now = int(time.time())
+
+    for msg in messages:
+        pk = msg.to_pubkey
+        if pk not in path_cache:
+            try:
+                path_cache[pk] = await deps.transport.resolve_inbound_path(pk)
+            except Exception:
+                log.debug("path resolve failed for %s", pk[:12], exc_info=True)
+                path_cache[pk] = []
+        if pk not in name_cache:
+            user = await deps.db.get_user(pk)
+            name_cache[pk] = user.display_name if user else None
+        if pk not in pause_cache:
+            pause_cache[pk] = await deps.db.get_outbound_pause_until(pk)
+
+        if msg.attempts > 0:
+            nature = "retry"
+        else:
+            nature = msg.msg_kind
+
+        path = path_cache[pk]
+        paused_until = pause_cache[pk]
+        items.append({
+            "id": msg.id,
+            "to_pubkey_prefix": pk[:12],
+            "to_name": name_cache[pk],
+            "path": path,
+            "path_display": _fmt_path(path) or None,
+            "nature": nature,
+            "trigger_command": msg.trigger_command,
+            "attempts": msg.attempts,
+            "priority": msg.priority,
+            "enqueued_at": msg.enqueued_at,
+            "next_attempt": msg.next_attempt,
+            "ready": msg.next_attempt <= now and not paused_until,
+            "paused_until": paused_until,
+            "body_preview": msg.body[:80],
+        })
+
+    return {"pending": items, "depth": len(items)}
+
+
 async def build_history(deps: DashboardDeps) -> dict:
     since = int(time.time()) - _HISTORY_DAYS * 86400
 
@@ -302,6 +354,69 @@ def register_dashboard_routes(app: web.Application, deps: DashboardDeps) -> None
     async def api_activity(_: web.Request) -> web.Response:
         return web.json_response(await build_activity(deps))
 
+    async def api_queue(_: web.Request) -> web.Response:
+        return web.json_response(await build_queue(deps))
+
+    def _parse_queue_msg_id(request: web.Request) -> int | None:
+        try:
+            return int(request.match_info["msg_id"])
+        except (KeyError, ValueError):
+            return None
+
+    async def _queue_action_response(
+        request: web.Request, action: str,
+    ) -> web.Response:
+        msg_id = _parse_queue_msg_id(request)
+        if msg_id is None:
+            return web.json_response({"ok": False, "error": "invalid message id"}, status=400)
+
+        if action == "remove":
+            msg = await deps.db.cancel_outbound(msg_id)
+            if msg is None:
+                return web.json_response({"ok": False, "error": "not found"}, status=404)
+            await deps.db.audit(
+                None, "queue_remove", f"id={msg_id} to={msg.to_pubkey[:12]}",
+            )
+            return web.json_response({"ok": True, "id": msg_id})
+
+        if action == "move-back":
+            msg = await deps.db.move_outbound_to_back(msg_id)
+            if msg is None:
+                return web.json_response({"ok": False, "error": "not found"}, status=404)
+            await deps.db.audit(
+                None, "queue_move_back", f"id={msg_id} to={msg.to_pubkey[:12]}",
+            )
+            return web.json_response({"ok": True, "id": msg_id})
+
+        if action == "pause-user":
+            pending = await deps.db.get_pending_outbound(msg_id)
+            if pending is None:
+                return web.json_response({"ok": False, "error": "not found"}, status=404)
+            until = await deps.db.pause_outbound_recipient(pending.to_pubkey)
+            await deps.db.audit(
+                None,
+                "queue_pause_user",
+                f"id={msg_id} to={pending.to_pubkey[:12]} until={until} "
+                f"seconds={OUTBOUND_PAUSE_SECONDS}",
+            )
+            return web.json_response({
+                "ok": True,
+                "id": msg_id,
+                "paused_until": until,
+                "pause_seconds": OUTBOUND_PAUSE_SECONDS,
+            })
+
+        return web.json_response({"ok": False, "error": "unknown action"}, status=400)
+
+    async def api_queue_remove(request: web.Request) -> web.Response:
+        return await _queue_action_response(request, "remove")
+
+    async def api_queue_move_back(request: web.Request) -> web.Response:
+        return await _queue_action_response(request, "move-back")
+
+    async def api_queue_pause_user(request: web.Request) -> web.Response:
+        return await _queue_action_response(request, "pause-user")
+
     async def api_history(_: web.Request) -> web.Response:
         return web.json_response(await build_history(deps))
 
@@ -376,6 +491,10 @@ def register_dashboard_routes(app: web.Application, deps: DashboardDeps) -> None
     app.router.add_post("/api/advert", api_advert)
     app.router.add_get("/api/stats", api_stats)
     app.router.add_get("/api/activity", api_activity)
+    app.router.add_get("/api/queue", api_queue)
+    app.router.add_post("/api/queue/{msg_id}/remove", api_queue_remove)
+    app.router.add_post("/api/queue/{msg_id}/move-back", api_queue_move_back)
+    app.router.add_post("/api/queue/{msg_id}/pause-user", api_queue_pause_user)
     app.router.add_get("/api/history", api_history)
     app.router.add_get("/api/logs", api_logs)
     app.router.add_get("/api/logs/stream", api_logs_stream)

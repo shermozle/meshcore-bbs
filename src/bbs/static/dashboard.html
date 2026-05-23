@@ -216,6 +216,25 @@
     }
     .actions button:disabled { opacity: 0.5; cursor: not-allowed; }
     .actions .action-status { color: var(--muted); font-size: 0.8rem; }
+    .mono { font-family: ui-monospace, monospace; font-size: 0.8rem; }
+    .path-cell { max-width: 280px; word-break: break-word; color: var(--muted); }
+    .tag.retry { background: rgba(245,166,35,.2); color: var(--warn); }
+    .tag.response { background: rgba(91,159,212,.15); color: var(--accent); }
+    .tag.notification { background: rgba(139,156,179,.15); color: var(--muted); }
+    .not-ready { color: var(--muted); font-style: italic; }
+    .queue-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+    .queue-actions button {
+      background: var(--border);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.72rem;
+    }
+    .queue-actions button:hover { border-color: var(--accent); color: var(--accent); }
+    .queue-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .tag.paused { background: rgba(245,166,35,.2); color: var(--warn); }
   </style>
 </head>
 <body>
@@ -243,6 +262,7 @@
     <button type="button" class="active" data-tab="overview">Overview</button>
     <button type="button" data-tab="usage">Usage</button>
     <button type="button" data-tab="activity">Activity</button>
+    <button type="button" data-tab="queue">Queue</button>
     <button type="button" data-tab="logs">Logs</button>
   </nav>
   <main>
@@ -266,14 +286,19 @@
       <table><thead><tr>
         <th>User</th><th>Msgs</th><th>Last seen</th><th>Hops</th><th></th>
       </tr></thead><tbody id="users-tbody"></tbody></table>
-      <h2>Pending outbound</h2>
-      <table><thead><tr>
-        <th>ID</th><th>To</th><th>Attempts</th><th>Age</th><th>Pri</th>
-      </tr></thead><tbody id="pending-tbody"></tbody></table>
       <h2>Audit log</h2>
       <table><thead><tr>
         <th>When</th><th>Actor</th><th>Action</th><th>Detail</th>
       </tr></thead><tbody id="audit-tbody"></tbody></table>
+    </section>
+    <section id="tab-queue" class="tab">
+      <h2>Outbound queue</h2>
+      <p class="refresh-note">Retries move to the back so other nodes are not blocked.</p>
+      <table><thead><tr>
+        <th>ID</th><th>To</th><th>Path</th><th>Type</th><th>Command</th>
+        <th>Attempts</th><th>Ready</th><th>Age</th><th>Body</th><th>Actions</th>
+      </tr></thead><tbody id="queue-tbody"></tbody></table>
+      <p class="refresh-note" id="queue-action-status"></p>
     </section>
     <section id="tab-logs" class="tab">
       <div class="log-controls">
@@ -308,6 +333,12 @@
     }
     function fmtTime(ts) {
       return new Date(ts * 1000).toLocaleString();
+    }
+    function fmtUntil(ts) {
+      const d = Math.max(0, ts - Math.floor(Date.now() / 1000));
+      if (d < 60) return `in ${d}s`;
+      if (d < 3600) return `in ${Math.floor(d / 60)}m`;
+      return `in ${Math.floor(d / 3600)}h`;
     }
 
     function setTab(name) {
@@ -367,11 +398,12 @@
 
     async function refresh() {
       try {
-        const [status, stats, activity, history] = await Promise.all([
+        const [status, stats, activity, history, queue] = await Promise.all([
           fetchJson('/api/status'),
           fetchJson('/api/stats'),
           fetchJson('/api/activity'),
           fetchJson('/api/history'),
+          fetchJson('/api/queue'),
         ]);
         document.getElementById('bbs-title').textContent = status.bbs_name;
         document.getElementById('bbs-meta').textContent =
@@ -440,10 +472,37 @@
           '</td></tr>'
         ).join('');
 
-        document.getElementById('pending-tbody').innerHTML = activity.pending_outbound.map(m =>
-          `<tr><td>${m.id}</td><td>${m.to_prefix}…</td><td>${m.attempts}</td>` +
-          `<td>${fmtRel(m.enqueued_at)}</td><td>${m.priority}</td></tr>`
-        ).join('') || '<tr><td colspan="5">No pending messages</td></tr>';
+        document.getElementById('queue-tbody').innerHTML = queue.pending.map(m => {
+          const who = m.to_name
+            ? `${escapeHtml(m.to_name)} (${m.to_pubkey_prefix}…)`
+            : `${m.to_pubkey_prefix}…`;
+          const path = m.path_display
+            ? escapeHtml(m.path_display)
+            : (m.path && m.path.length ? escapeHtml(m.path.join(' → ')) : '—');
+          const cmd = m.trigger_command ? escapeHtml(m.trigger_command) : '—';
+          const tagClass = m.nature === 'retry' ? 'retry' : m.nature;
+          let ready;
+          if (m.paused_until) {
+            ready = `<span class="tag paused">paused ${fmtUntil(m.paused_until)}</span>`;
+          } else if (m.ready) {
+            ready = 'now';
+          } else {
+            ready = `<span class="not-ready">${fmtRel(m.next_attempt)}</span>`;
+          }
+          const actions =
+            `<div class="queue-actions">` +
+            `<button type="button" data-queue-action="remove" data-id="${m.id}">Remove</button>` +
+            `<button type="button" data-queue-action="pause-user" data-id="${m.id}">Pause 30m</button>` +
+            `<button type="button" data-queue-action="move-back" data-id="${m.id}">To back</button>` +
+            `</div>`;
+          return `<tr><td>${m.id}</td><td>${who}</td>` +
+            `<td class="path-cell mono">${path}</td>` +
+            `<td><span class="tag ${tagClass}">${escapeHtml(m.nature)}</span></td>` +
+            `<td>${cmd}</td><td>${m.attempts}</td><td>${ready}</td>` +
+            `<td>${fmtRel(m.enqueued_at)}</td>` +
+            `<td class="mono">${escapeHtml(m.body_preview)}</td>` +
+            `<td>${actions}</td></tr>`;
+        }).join('') || '<tr><td colspan="10">No pending messages</td></tr>';
 
         document.getElementById('audit-tbody').innerHTML = activity.audit.map(a =>
           `<tr><td>${fmtTime(a.ts)}</td><td>${a.actor || '—'}</td>` +
@@ -458,6 +517,35 @@
     function escapeHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
+
+    async function runQueueAction(id, action, btn) {
+      const statusEl = document.getElementById('queue-action-status');
+      if (btn) btn.disabled = true;
+      statusEl.textContent = 'Working…';
+      try {
+        const r = await fetch(`/api/queue/${id}/${action}`, { method: 'POST' });
+        const data = await r.json();
+        if (!r.ok || !data.ok) throw new Error(data.error || r.status);
+        statusEl.textContent = action === 'pause-user'
+          ? `Paused user for 30 minutes (msg ${id}).`
+          : `Done: ${action} (msg ${id}).`;
+        await refresh();
+      } catch (e) {
+        statusEl.textContent = 'Action failed: ' + e.message;
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    document.getElementById('queue-tbody').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-queue-action]');
+      if (!btn) return;
+      const id = btn.getAttribute('data-id');
+      const action = btn.getAttribute('data-queue-action');
+      if (!id || !action) return;
+      if (!confirm(`Apply "${action}" to queue message ${id}?`)) return;
+      runQueueAction(id, action, btn);
+    });
 
     function shouldHideLogLine(line) {
       if (!document.getElementById('log-hide-dashboard').checked) return false;

@@ -127,7 +127,21 @@ MIGRATIONS: list[str] = [
     """,
     # 2: track last hop count per user
     "ALTER TABLE users ADD COLUMN last_hops INTEGER;",
+    # 3: outbound queue metadata for dashboard / retry ordering
+    """
+    ALTER TABLE outbound_queue ADD COLUMN trigger_command TEXT;
+    ALTER TABLE outbound_queue ADD COLUMN msg_kind TEXT NOT NULL DEFAULT 'response';
+    """,
+    # 4: operator pause of outbound sends per recipient (dashboard)
+    """
+    CREATE TABLE outbound_pause (
+      pubkey         TEXT PRIMARY KEY,
+      paused_until   INTEGER NOT NULL
+    );
+    """,
 ]
+
+OUTBOUND_PAUSE_SECONDS = 30 * 60
 
 
 class Database:
@@ -548,13 +562,21 @@ class Database:
     # -- outbound queue -------------------------------------------------------
 
     async def enqueue_outbound(
-        self, to_pubkey: str, body: str, now: int, priority: int = 0
+        self,
+        to_pubkey: str,
+        body: str,
+        now: int,
+        priority: int = 0,
+        *,
+        trigger_command: str | None = None,
+        msg_kind: str = "response",
     ) -> int:
         cur = await self.conn.execute(
             """INSERT INTO outbound_queue
-                 (to_pubkey, body, enqueued_at, next_attempt, priority)
-               VALUES (?, ?, ?, ?, ?)""",
-            (to_pubkey, body, now, now, priority),
+                 (to_pubkey, body, enqueued_at, next_attempt, priority,
+                  trigger_command, msg_kind)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (to_pubkey, body, now, now, priority, trigger_command, msg_kind),
         )
         await self.conn.commit()
         return cur.lastrowid or 0
@@ -570,16 +592,7 @@ class Database:
         row = await cur.fetchone()
         if not row:
             return None
-        return OutboundMessage(
-            id=row["id"],
-            to_pubkey=row["to_pubkey"],
-            body=row["body"],
-            enqueued_at=row["enqueued_at"],
-            attempts=row["attempts"],
-            next_attempt=row["next_attempt"],
-            status=row["status"],
-            priority=row["priority"],
-        )
+        return _outbound_row_to_message(row)
 
     async def mark_outbound_sent(self, msg_id: int) -> None:
         await self.conn.execute(
@@ -587,11 +600,28 @@ class Database:
         )
         await self.conn.commit()
 
-    async def reschedule_outbound(self, msg_id: int, next_attempt: int, attempts: int) -> None:
-        await self.conn.execute(
-            "UPDATE outbound_queue SET next_attempt = ?, attempts = ? WHERE id = ?",
-            (next_attempt, attempts, msg_id),
-        )
+    async def reschedule_outbound(
+        self, msg_id: int, next_attempt: int, attempts: int, *, requeue_to_back: bool = True
+    ) -> None:
+        """Reschedule a pending row. When *requeue_to_back* is true, bump enqueued_at so
+        the message sorts after other ready items at the same priority."""
+        if requeue_to_back:
+            cur = await self.conn.execute(
+                "SELECT COALESCE(MAX(enqueued_at), 0) FROM outbound_queue WHERE status = 'pending'"
+            )
+            row = await cur.fetchone()
+            back_at = max(int(time.time()), int(row[0]) if row else 0) + 1
+            await self.conn.execute(
+                """UPDATE outbound_queue
+                   SET next_attempt = ?, attempts = ?, enqueued_at = ?
+                   WHERE id = ?""",
+                (next_attempt, attempts, back_at, msg_id),
+            )
+        else:
+            await self.conn.execute(
+                "UPDATE outbound_queue SET next_attempt = ?, attempts = ? WHERE id = ?",
+                (next_attempt, attempts, msg_id),
+            )
         await self.conn.commit()
 
     async def mark_outbound_failed(self, msg_id: int) -> None:
@@ -616,6 +646,81 @@ class Database:
         row = await cur.fetchone()
         return int(row[0]) if row else 0
 
+    async def get_pending_outbound(self, msg_id: int) -> OutboundMessage | None:
+        cur = await self.conn.execute(
+            "SELECT * FROM outbound_queue WHERE id = ? AND status = 'pending'",
+            (msg_id,),
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+        return _outbound_row_to_message(row)
+
+    async def cancel_outbound(self, msg_id: int) -> OutboundMessage | None:
+        msg = await self.get_pending_outbound(msg_id)
+        if msg is None:
+            return None
+        await self.conn.execute(
+            "UPDATE outbound_queue SET status = 'cancelled' WHERE id = ?", (msg_id,)
+        )
+        await self.conn.commit()
+        return msg
+
+    async def move_outbound_to_back(self, msg_id: int) -> OutboundMessage | None:
+        msg = await self.get_pending_outbound(msg_id)
+        if msg is None:
+            return None
+        now = int(time.time())
+        await self.reschedule_outbound(msg_id, now, msg.attempts, requeue_to_back=True)
+        return msg
+
+    async def get_outbound_pause_until(self, pubkey: str) -> int | None:
+        cur = await self.conn.execute(
+            "SELECT paused_until FROM outbound_pause WHERE pubkey = ?", (pubkey,)
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+        until = int(row[0])
+        now = int(time.time())
+        if until <= now:
+            await self.conn.execute("DELETE FROM outbound_pause WHERE pubkey = ?", (pubkey,))
+            await self.conn.commit()
+            return None
+        return until
+
+    async def pause_outbound_recipient(
+        self, pubkey: str, seconds: int = OUTBOUND_PAUSE_SECONDS
+    ) -> int:
+        """Pause all outbound sends to *pubkey* for *seconds*. Returns paused_until."""
+        until = int(time.time()) + seconds
+        await self.conn.execute(
+            """INSERT INTO outbound_pause (pubkey, paused_until) VALUES (?, ?)
+               ON CONFLICT(pubkey) DO UPDATE SET paused_until = excluded.paused_until""",
+            (pubkey, until),
+        )
+        cur = await self.conn.execute(
+            "SELECT id, next_attempt, attempts FROM outbound_queue "
+            "WHERE status = 'pending' AND to_pubkey = ?",
+            (pubkey,),
+        )
+        for row in await cur.fetchall():
+            next_at = max(int(row[1]), until)
+            await self.reschedule_outbound(int(row[0]), next_at, int(row[2]), requeue_to_back=True)
+        await self.conn.commit()
+        return until
+
+    async def list_pending_outbound(self, limit: int = 50) -> list[OutboundMessage]:
+        cur = await self.conn.execute(
+            """SELECT * FROM outbound_queue
+               WHERE status = 'pending'
+               ORDER BY priority DESC, enqueued_at ASC, id ASC
+               LIMIT ?""",
+            (limit,),
+        )
+        rows = await cur.fetchall()
+        return [_outbound_row_to_message(row) for row in rows]
+
     # -- maintenance ----------------------------------------------------------
 
     async def vacuum(self) -> None:
@@ -629,6 +734,21 @@ class Database:
 
     async def execute(self, sql: str, params: Iterable[Any] = ()) -> aiosqlite.Cursor:
         return await self.conn.execute(sql, params)
+
+
+def _outbound_row_to_message(row: aiosqlite.Row) -> OutboundMessage:
+    return OutboundMessage(
+        id=row["id"],
+        to_pubkey=row["to_pubkey"],
+        body=row["body"],
+        enqueued_at=row["enqueued_at"],
+        attempts=row["attempts"],
+        next_attempt=row["next_attempt"],
+        status=row["status"],
+        priority=row["priority"],
+        trigger_command=row["trigger_command"],
+        msg_kind=row["msg_kind"] or "response",
+    )
 
 
 def _user_from_row(row: aiosqlite.Row) -> User:

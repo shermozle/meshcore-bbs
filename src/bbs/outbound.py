@@ -13,6 +13,8 @@ Throttling:
 
 Retry:
   - send returning NO_ACK or ERROR triggers exponential backoff.
+  - Retries are moved to the back of the pending queue (same priority tier) so
+    other recipients are not starved by a flaky node.
   - After MAX_ATTEMPTS, the row is marked 'failed' and an audit entry written.
 
 Drop:
@@ -90,6 +92,12 @@ class OutboundWorker:
         await self.db.drop_stale_outbound(now - MAX_AGE_SECONDS)
         msg = await self.db.claim_next_outbound(now)
         if msg is None:
+            return False
+
+        paused_until = await self.db.get_outbound_pause_until(msg.to_pubkey)
+        if paused_until is not None and paused_until > now:
+            await self.db.reschedule_outbound(msg.id, paused_until, msg.attempts)
+            log.debug("outbound %d deferred: recipient paused until %d", msg.id, paused_until)
             return False
 
         # Per-recipient throttle: if the last send to this recipient was too
