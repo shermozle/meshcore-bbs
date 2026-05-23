@@ -66,7 +66,7 @@ HELP_OVERVIEW = (
 HELP_TOPICS: dict[str, str] = {
     "HELP": "HELP [topic] - list cmds or detail on one.",
     "WHOAMI": "WHOAMI - show your name and pubkey prefix.",
-    "NAME": "NAME <new> - set display name (1-10 chars, A-Z 0-9 _ -).",
+    "NAME": "NAME <new> - set display name (1-10 chars, A-Z 0-9 _ - emoji).",
     "WHO": "WHO - list up to 5 recently active users with hop count.",
     "PING": "PING - pong with the mesh path taken to reach the BBS.",
     "NEWS": "NEWS [feed] - top headlines, optionally from one feed.",
@@ -77,7 +77,7 @@ HELP_TOPICS: dict[str, str] = {
     "MAIL": "MAIL - show unread/total counts.",
     "INBOX": "INBOX [page] - list inbox, unread first.",
     "READMAIL": "READMAIL <id> - read a mail and mark it read.",
-    "SEND": "SEND <user> <text> - send mail (name or pubkey prefix).",
+    "SEND": "SEND <user> <text> - send mail (name, partial name, or pubkey).",
     "DELETE": "DELETE <id> - delete a mail.",
     "STATUS": "STATUS - BBS uptime, version, outbound queue depth.",
     "ADMIN": "ADMIN BAN|UNBAN|BOARD ADD|BOARD DEL|BROADCAST",

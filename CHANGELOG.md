@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [0.4.1] - 2026-05-23
 
+### Added
+- Display names may include Unicode emoji (common on MeshCore handles)
+- `SEND` accepts partial display-name matches (e.g. `SEND VK2VSR` → `🗼VK2VSR`); replies `! Ambiguous: …` when several users match
+
+### Changed
+- `NAME` help and welcome text mention emoji in allowed characters
+
 ### Fixed
 - `PING` again includes the full inbound mesh path in `PONG` replies, with relay hashes resolved to contact names where known (via path discovery when not present on the packet)
 
