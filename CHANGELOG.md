@@ -5,6 +5,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.3] - 2026-05-23
+
+### Fixed
+- Web dashboard usage charts show the numeric value above each bar (no hover needed)
+- `PING` / `PONG` again includes the mesh path when path discovery returns only the outbound leg, or when the contact’s stored route is available
+
+---
+
 ## [0.6.2] - 2026-05-23
 
 ### Fixed
