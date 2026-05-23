@@ -10,6 +10,13 @@ from pathlib import Path
 
 from aiohttp import web
 
+# Raised when the browser closes an SSE connection before the handler finishes.
+_STREAM_DISCONNECT_ERRORS = (
+    asyncio.CancelledError,
+    ConnectionResetError,
+    BrokenPipeError,
+)
+
 from . import __version__
 from .config import Config
 from .db import Database
@@ -26,6 +33,17 @@ log = logging.getLogger(__name__)
 _HISTORY_DAYS = 14
 _LOG_TAIL_DEFAULT = 200
 _LOG_TAIL_MAX = 2000
+
+
+async def _safe_stream_eof(resp: web.StreamResponse, request: web.Request) -> None:
+    """End an SSE response without error logging if the client already disconnected."""
+    transport = request.transport
+    if transport is None or transport.is_closing():
+        return
+    try:
+        await resp.write_eof()
+    except _STREAM_DISCONNECT_ERRORS:
+        pass
 
 
 @dataclass
@@ -467,7 +485,7 @@ def register_dashboard_routes(app: web.Application, deps: DashboardDeps) -> None
         path = deps.log_path
         if not path or not Path(path).is_file():
             await resp.write(b"event: error\ndata: no log file\n\n")
-            await resp.write_eof()
+            await _safe_stream_eof(resp, request)
             return resp
 
         offset = Path(path).stat().st_size
@@ -479,12 +497,15 @@ def register_dashboard_routes(app: web.Application, deps: DashboardDeps) -> None
                 for line in lines:
                     # SSE requires each line escaped; keep payload single-line.
                     safe = line.replace("\r", "").replace("\n", " ")
-                    await resp.write(f"data: {safe}\n\n".encode())
+                    try:
+                        await resp.write(f"data: {safe}\n\n".encode())
+                    except _STREAM_DISCONNECT_ERRORS:
+                        return resp
                 await asyncio.sleep(1.0)
-        except (asyncio.CancelledError, ConnectionResetError):
+        except _STREAM_DISCONNECT_ERRORS:
             pass
         finally:
-            await resp.write_eof()
+            await _safe_stream_eof(resp, request)
         return resp
 
     app.router.add_get("/api/status", api_status)
