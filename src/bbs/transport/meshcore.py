@@ -40,6 +40,7 @@ class MeshCoreTransport:
         self._events: asyncio.Queue[TransportEvent] = asyncio.Queue()
         self._self_pubkey: str = ""
         self._poll_task: asyncio.Task | None = None
+        self._path_cache: dict[str, list[str]] = {}
 
     @property
     def self_pubkey(self) -> str:
@@ -169,23 +170,53 @@ class MeshCoreTransport:
             log.warning("remove_contact(%s) failed: %s", pubkey[:8], e)
 
     async def resolve_inbound_path(self, pubkey: str) -> list[str]:
-        """Return the inbound mesh path for *pubkey* via path discovery."""
+        """Return the inbound mesh path for *pubkey* (best-effort)."""
         if self._mc is None:
             return []
+        pk = pubkey.lower()
+        cached = self._path_cache.get(pk)
+        if cached is not None:
+            return list(cached)
+
+        path = await self._discover_inbound_path(pk)
+        if not path:
+            path = _path_from_contact(self._mc, pk)
+        if path:
+            self._path_cache[pk] = list(path)
+        return path
+
+    async def _discover_inbound_path(self, pubkey: str) -> list[str]:
+        """Ask the companion for the inbound route via path discovery."""
         try:
             event = await self._mc.commands.send_path_discovery_sync(
-                pubkey, min_timeout=2.0,
+                pubkey, min_timeout=3.0,
             )
         except Exception as e:
             log.warning("path discovery failed for %s: %s", pubkey[:12], e)
             return []
         if event is None or event.is_error():
             return []
+
         payload = event.payload if hasattr(event, "payload") else event
+        expected = pubkey[:12]
+        got = str(_get_attr(payload, "pubkey_pre") or "").lower()
+        if got and got != expected:
+            log.warning(
+                "path discovery prefix mismatch for %s: got %s",
+                pubkey[:12], got,
+            )
+
         in_path = _get_attr(payload, "in_path") or ""
-        hash_len = _get_attr(payload, "in_path_hash_len") or 1
+        in_hash_len = int(_get_attr(payload, "in_path_hash_len") or 1)
         if in_path:
-            return _resolve_path_hex(str(in_path), int(hash_len), self._mc)
+            return _resolve_path_hex(str(in_path), in_hash_len, self._mc)
+
+        # Some firmware builds only populate the outbound leg; reverse it.
+        out_path = _get_attr(payload, "out_path") or ""
+        out_hash_len = int(_get_attr(payload, "out_path_hash_len") or 1)
+        if out_path:
+            nodes = _resolve_path_hex(str(out_path), out_hash_len, self._mc)
+            return list(reversed(nodes))
         return []
 
     # -- internals ------------------------------------------------------------
@@ -224,6 +255,8 @@ class MeshCoreTransport:
         else:
             hops = int(path_len)
         path = _extract_path(payload, self._mc)
+        if path:
+            self._path_cache[pk.lower()] = list(path)
         await self._events.put(
             TransportEvent(
                 type=TransportEventType.CONTACT_MSG_RECV,
@@ -322,6 +355,22 @@ def _resolve_hash_to_name(node_hash: str, mc: Any) -> str:
             pass
     # Show a short hash label when no contact name is known.
     return node_hash[:8] if len(node_hash) > 8 else node_hash
+
+
+def _path_from_contact(mc: Any, pubkey: str) -> list[str]:
+    """Fallback: use the stored outbound path on the contact (reversed)."""
+    contact = mc.contacts.get(pubkey)
+    if contact is None:
+        contact = mc.get_contact_by_key_prefix(pubkey[:12])
+    if contact is None:
+        return []
+    out_path = _get_attr(contact, "out_path") or ""
+    if not out_path:
+        return []
+    mode = _get_attr(contact, "out_path_hash_mode")
+    hash_len = 1 if mode is None or int(mode) < 0 else int(mode) + 1
+    nodes = _resolve_path_hex(str(out_path), hash_len, mc)
+    return list(reversed(nodes))
 
 
 def _resolve_path_hex(path_hex: str, hash_len: int, mc: Any) -> list[str]:

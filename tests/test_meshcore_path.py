@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from bbs.transport.meshcore import _resolve_path_hex
+from bbs.transport.meshcore import _path_from_contact, _resolve_path_hex
 
 
 class _FakeMc:
     def __init__(self, names: dict[str, str]) -> None:
         self._names = names
+        self.contacts: dict[str, dict] = {}
 
     def get_contact_by_key_prefix(self, prefix: str):
         name = self._names.get(prefix.lower())
@@ -26,3 +27,14 @@ def test_resolve_path_hex_falls_back_to_hash_prefix():
     mc = _FakeMc({})
     path = _resolve_path_hex("aabbcc", 3, mc)
     assert path == ["aabbcc"]
+
+
+def test_path_from_contact_reverses_stored_out_path():
+    pk = "f" * 64
+    mc = _FakeMc({"aabbcc": "RepeaterA", "ddeeff": "RepeaterB"})
+    mc.contacts[pk] = {
+        "public_key": pk,
+        "out_path": "aabbccddeeff",
+        "out_path_hash_mode": 2,
+    }
+    assert _path_from_contact(mc, pk) == ["RepeaterB", "RepeaterA"]
