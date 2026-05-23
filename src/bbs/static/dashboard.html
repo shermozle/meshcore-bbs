@@ -38,6 +38,28 @@
     }
     header h1 { margin: 0; font-size: 1.1rem; font-weight: 600; }
     header .meta { color: var(--muted); font-size: 0.85rem; }
+    header .key-metrics {
+      display: flex;
+      gap: 20px;
+      margin-right: 16px;
+      font-size: 0.85rem;
+    }
+    header .key-metrics .km {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+    }
+    header .key-metrics .km-label {
+      color: var(--muted);
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    header .key-metrics .km-value {
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
     .status-pill {
       display: inline-block;
       padding: 2px 10px;
@@ -127,23 +149,40 @@
       padding: 12px;
     }
     .chart-box h3 { margin: 0 0 10px; font-size: 0.85rem; color: var(--muted); }
-    .bar-chart { display: flex; align-items: flex-end; gap: 4px; height: 120px; }
-    .bar-chart .bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+    .bar-chart {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      height: 120px;
+      padding-bottom: 28px;
+      box-sizing: content-box;
+    }
+    .bar-chart .bar-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      height: 120px;
+      min-width: 0;
+      position: relative;
+    }
     .bar-chart .bar {
       width: 100%;
       max-width: 28px;
       background: var(--accent);
       border-radius: 3px 3px 0 0;
-      min-height: 2px;
+      min-height: 0;
     }
     .bar-chart .bar-label {
+      position: absolute;
+      bottom: -24px;
+      left: 50%;
       font-size: 0.65rem;
       color: var(--muted);
-      margin-top: 4px;
-      transform: rotate(-45deg);
+      transform: translateX(-50%) rotate(-45deg);
+      transform-origin: top center;
       white-space: nowrap;
-      max-width: 36px;
-      overflow: hidden;
     }
     #log-view {
       flex: 1;
@@ -173,7 +212,17 @@
       <h1 id="bbs-title">MeshCore BBS</h1>
       <div class="meta" id="bbs-meta">—</div>
     </div>
-    <div>
+    <div style="display:flex;align-items:center;">
+      <div class="key-metrics" id="header-metrics">
+        <div class="km">
+          <span class="km-label">Last event</span>
+          <span class="km-value" id="hdr-last-event">—</span>
+        </div>
+        <div class="km">
+          <span class="km-label">Queue</span>
+          <span class="km-value" id="hdr-queue">—</span>
+        </div>
+      </div>
       <span class="status-pill" id="health-pill">—</span>
       <span class="refresh-note" id="last-refresh"></span>
     </div>
@@ -214,6 +263,7 @@
       <div class="log-controls">
         <label><input type="checkbox" id="log-follow" checked> Follow (live tail)</label>
         <label><input type="checkbox" id="log-pause"> Pause</label>
+        <label><input type="checkbox" id="log-hide-dashboard" checked> Hide dashboard HTTP</label>
         <button type="button" id="log-clear">Clear view</button>
         <span class="refresh-note" id="log-path"></span>
       </div>
@@ -259,6 +309,8 @@
       b.addEventListener('click', () => setTab(b.dataset.tab));
     });
 
+    const CHART_BAR_PX = 100;
+
     function renderBars(container, series, labelKey, valueKey) {
       const max = Math.max(1, ...series.map(x => x[valueKey]));
       container.innerHTML = '';
@@ -269,7 +321,10 @@
         col.className = 'bar-wrap';
         const bar = document.createElement('div');
         bar.className = 'bar';
-        bar.style.height = `${Math.round((item[valueKey] / max) * 100)}%`;
+        const h = item[valueKey] > 0
+          ? Math.max(4, Math.round((item[valueKey] / max) * CHART_BAR_PX))
+          : 0;
+        bar.style.height = `${h}px`;
         bar.title = `${item[labelKey]}: ${item[valueKey]}`;
         const lbl = document.createElement('div');
         lbl.className = 'bar-label';
@@ -310,6 +365,13 @@
         pill.className = 'status-pill ' + (status.status === 'ok' ? 'ok' : 'bad');
         document.getElementById('last-refresh').textContent =
           'Updated ' + new Date().toLocaleTimeString();
+
+        const lastEv = status.last_event_age_seconds != null
+          ? fmtRel(Math.floor(Date.now() / 1000) - status.last_event_age_seconds)
+          : '—';
+        document.getElementById('hdr-last-event').textContent = lastEv;
+        document.getElementById('hdr-queue').textContent =
+          String(status.outbound_pending);
 
         const prob = document.getElementById('overview-problems');
         prob.textContent = status.problems.length
@@ -381,10 +443,15 @@
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
+    function shouldHideLogLine(line) {
+      if (!document.getElementById('log-hide-dashboard').checked) return false;
+      return line.includes('aiohttp.access');
+    }
+
     function appendLogLines(lines) {
       const el = document.getElementById('log-view');
       if (document.getElementById('log-pause').checked) return;
-      lines.forEach(line => {
+      lines.filter(line => !shouldHideLogLine(line)).forEach(line => {
         el.appendChild(document.createTextNode(line + '\n'));
       });
       if (document.getElementById('log-follow').checked) {
@@ -426,6 +493,11 @@
 
     document.getElementById('log-clear').addEventListener('click', () => {
       document.getElementById('log-view').textContent = '';
+    });
+
+    document.getElementById('log-hide-dashboard').addEventListener('change', () => {
+      if (document.getElementById('log-pause').checked) return;
+      loadLogTail();
     });
 
     setInterval(refresh, REFRESH_MS);

@@ -5,6 +5,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.3] - 2026-05-23
+
+### Changed
+- Web dashboard shows Last event and Queue in the top bar on every tab
+- Usage charts render bar heights correctly (active/new users by day)
+- Log tab can hide `aiohttp.access` lines from the dashboard’s own polling
+
+---
+
 ## [0.4.2] - 2026-05-23
 
 ### Changed

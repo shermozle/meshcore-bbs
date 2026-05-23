@@ -95,6 +95,10 @@ async def test_dashboard_html(dashboard_app):
         text = await resp.text()
         assert "MeshCore BBS" in text
         assert "/api/status" in text
+        assert "hdr-last-event" in text
+        assert "hdr-queue" in text
+        assert "log-hide-dashboard" in text
+        assert "CHART_BAR_PX" in text
         assert "main:has(#tab-logs.active)" in text
         assert "height: 420px" not in text
 
