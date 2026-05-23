@@ -101,4 +101,4 @@ To populate a dev DB with sample boards, users, news, and mail:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GPL-3.0-or-later — see [LICENSE](LICENSE).
