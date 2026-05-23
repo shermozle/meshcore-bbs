@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 
@@ -128,6 +129,18 @@ async def test_api_logs_tail(dashboard_app, log_file):
         data = await (await client.get("/api/logs?lines=10")).json()
         assert "started" in "\n".join(data["lines"])
         assert data["path"] == log_file
+
+
+@pytest.mark.asyncio
+async def test_api_logs_stream_handles_client_disconnect(dashboard_app):
+    """Closing the browser tab must not surface as an aiohttp server ERROR."""
+    app, _, _ = dashboard_app
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/api/logs/stream")
+        assert resp.status == 200
+        assert "text/event-stream" in resp.headers.get("Content-Type", "")
+        resp.close()
+        await asyncio.sleep(0.05)
 
 
 @pytest.mark.asyncio

@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.2] - 2026-05-23
+
+### Fixed
+- Web dashboard log SSE stream (`/api/logs/stream`) no longer logs `ClientConnectionResetError` when the browser closes the connection (tab switch, follow toggle, or page leave)
+
+---
+
 ## [0.6.1] - 2026-05-23
 
 ### Added
