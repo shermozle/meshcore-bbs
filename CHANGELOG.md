@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.1] - 2026-05-23
+
+### Added
+- Dashboard queue row actions: **Remove** (cancel message), **Pause 30m** (defer all outbound to that recipient for 30 minutes), **To back** (manual requeue)
+
+---
+
 ## [0.6.0] - 2026-05-23
 
 ### Added

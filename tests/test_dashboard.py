@@ -83,6 +83,30 @@ async def test_api_queue(dashboard_app, db, transport, outbound_worker):
 
 
 @pytest.mark.asyncio
+async def test_api_queue_actions(dashboard_app, db, transport, outbound_worker):
+    await outbound_worker.stop(drain_timeout_seconds=1.0)
+    app, _, _ = dashboard_app
+    now = int(time.time())
+    msg_id = await db.enqueue_outbound("abc123", "hello", now)
+    msg_id2 = await db.enqueue_outbound("abc123", "second", now)
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post(f"/api/queue/{msg_id}/remove")
+        assert resp.status == 200
+        assert (await resp.json())["ok"] is True
+        cur = await db.execute("SELECT status FROM outbound_queue WHERE id = ?", (msg_id,))
+        assert (await cur.fetchone())[0] == "cancelled"
+
+        resp = await client.post("/api/queue/99999/move-back")
+        assert resp.status == 404
+
+        resp = await client.post(f"/api/queue/{msg_id2}/pause-user")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["pause_seconds"] == 30 * 60
+        assert await db.get_outbound_pause_until("abc123") is not None
+
+
+@pytest.mark.asyncio
 async def test_api_stats_and_history(dashboard_app, db):
     app, _, _ = dashboard_app
     now = int(time.time())
@@ -128,6 +152,7 @@ async def test_dashboard_html(dashboard_app):
         assert "hdr-queue" in text
         assert 'data-tab="queue"' in text
         assert "/api/queue" in text
+        assert "data-queue-action" in text
         assert "btn-flood-advert" in text
         assert "/api/advert" in text
         assert "log-hide-dashboard" in text

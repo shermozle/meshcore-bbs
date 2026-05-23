@@ -94,6 +94,12 @@ class OutboundWorker:
         if msg is None:
             return False
 
+        paused_until = await self.db.get_outbound_pause_until(msg.to_pubkey)
+        if paused_until is not None and paused_until > now:
+            await self.db.reschedule_outbound(msg.id, paused_until, msg.attempts)
+            log.debug("outbound %d deferred: recipient paused until %d", msg.id, paused_until)
+            return False
+
         # Per-recipient throttle: if the last send to this recipient was too
         # recent, push next_attempt out and skip this row this tick.
         recip_min_gap = self.limits.outbound_per_recipient_min_interval_ms / 1000

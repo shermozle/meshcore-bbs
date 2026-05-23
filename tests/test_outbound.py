@@ -7,6 +7,7 @@ import time
 
 import pytest
 
+from bbs.db import OUTBOUND_PAUSE_SECONDS
 from bbs.outbound import OutboundWorker
 from bbs.transport.base import SendOutcome
 from bbs.transport.mock import MockTransport
@@ -101,3 +102,32 @@ class TestOutboundQueue:
         assert ("pk2", "ok") in transport.sent
         idx_pk2 = transport.sent.index(("pk2", "ok"))
         assert transport.sent[:idx_pk2].count(("pk1", "stuck")) <= 1
+
+    async def test_pause_defers_send(self, db, transport, cfg):
+        now = int(time.time())
+        msg_id = await db.enqueue_outbound("pk1", "wait", now, priority=10)
+        until = await db.pause_outbound_recipient("pk1", seconds=OUTBOUND_PAUSE_SECONDS)
+        worker = OutboundWorker(db, transport, cfg.limits)
+        worker.start()
+        for _ in range(30):
+            await asyncio.sleep(0.02)
+        await worker.stop(drain_timeout_seconds=1.0)
+        assert not transport.sent
+        cur = await db.execute(
+            "SELECT next_attempt FROM outbound_queue WHERE id = ?", (msg_id,)
+        )
+        row = await cur.fetchone()
+        assert int(row[0]) >= until
+
+    async def test_cancel_and_move_back(self, db):
+        now = int(time.time())
+        id1 = await db.enqueue_outbound("pk1", "a", now - 10, priority=10)
+        id2 = await db.enqueue_outbound("pk2", "b", now, priority=10)
+        cancelled = await db.cancel_outbound(id1)
+        assert cancelled is not None
+        cur = await db.execute("SELECT status FROM outbound_queue WHERE id = ?", (id1,))
+        assert (await cur.fetchone())[0] == "cancelled"
+        await db.move_outbound_to_back(id2)
+        claimed = await db.claim_next_outbound(now)
+        assert claimed is not None
+        assert claimed.to_pubkey == "pk2"
