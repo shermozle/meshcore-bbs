@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import time
 
+from bbs.names import NAME_MAX
 from bbs.onboarding import (
-    NAME_MAX,
     RESERVED_NAMES,
     try_set_name,
     validate_name,
@@ -24,6 +24,12 @@ class TestValidateName:
 
     def test_valid_with_digits(self):
         assert validate_name("alice42") is None
+
+    def test_valid_with_emoji(self):
+        assert validate_name("🗼VK2VSR") is None
+
+    def test_valid_emoji_only(self):
+        assert validate_name("🗼") is None
 
     def test_valid_single_char(self):
         assert validate_name("a") is None
