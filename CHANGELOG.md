@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.1] - 2026-05-23
+
+### Fixed
+- `PING` again includes the full inbound mesh path in `PONG` replies, with relay hashes resolved to contact names where known (via path discovery when not present on the packet)
+
+---
+
 ## [0.4.0] - 2026-05-22
 
 ### Added

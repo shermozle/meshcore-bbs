@@ -228,7 +228,18 @@ class Dispatcher:
             hops_str = "direct"
         else:
             hops_str = f"{inbound.hops} hop{'s' if inbound.hops != 1 else ''}"
-        await self._enqueue_reply(inbound.pubkey, f"PONG ({hops_str})")
+
+        path = list(inbound.path)
+        if not path:
+            path = await self.transport.resolve_inbound_path(inbound.pubkey)
+
+        path_str = _fmt_path(path)
+        if path_str:
+            await self._enqueue_reply(
+                inbound.pubkey, f"PONG ({hops_str}) via {path_str}",
+            )
+        else:
+            await self._enqueue_reply(inbound.pubkey, f"PONG ({hops_str})")
 
     async def _notify_admins_new_user(self, display: str, pubkey: str) -> None:
         msg = f"New user: {display} ({pubkey[:12]})"
@@ -437,6 +448,13 @@ def _maybe_int(args: list[str], idx: int, default: int) -> int:
     if idx < len(args) and args[idx].isdigit():
         return int(args[idx])
     return default
+
+
+def _fmt_path(path: list[str]) -> str:
+    """Format a mesh path as human-readable node names or short hash labels."""
+    if not path:
+        return ""
+    return " → ".join(p[:16] if len(p) > 16 else p for p in path)
 
 
 def _hop_multiplier(hops: int | None) -> int:

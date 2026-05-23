@@ -18,10 +18,25 @@ ALICE_PK = "1" * 64
 BOB_PK = "2" * 64
 
 
-async def _send(dispatcher, transport: MockTransport, pubkey: str, body: str) -> list[str]:
+async def _send(
+    dispatcher,
+    transport: MockTransport,
+    pubkey: str,
+    body: str,
+    *,
+    hops: int | None = None,
+    path: list[str] | None = None,
+) -> list[str]:
     """Inject an inbound message and drain whatever the dispatcher emits."""
     from bbs.transport.base import InboundMessage
-    inbound = InboundMessage(pubkey=pubkey, adv_name=None, body=body, received_at=int(time.time()))
+    inbound = InboundMessage(
+        pubkey=pubkey,
+        adv_name=None,
+        body=body,
+        received_at=int(time.time()),
+        hops=hops,
+        path=path if path is not None else [],
+    )
     await dispatcher.handle_inbound(inbound)
     return await drain_replies(dispatcher, transport, pubkey)
 
@@ -84,6 +99,35 @@ async def _onboard(dispatcher, transport: MockTransport, pubkey: str, name: str)
     await _send(dispatcher, transport, pubkey, "HELP")
     await _send(dispatcher, transport, pubkey, f"NAME {name}")
     transport.sent.clear()
+
+
+class TestPing:
+    async def test_ping_direct(self, dispatcher, transport):
+        await _onboard(dispatcher, transport, ALICE_PK, "alice")
+        replies = await _send(dispatcher, transport, ALICE_PK, "PING", hops=0)
+        assert len(replies) == 1
+        assert "PONG (direct)" in replies[0]
+        assert "via" not in replies[0]
+
+    async def test_ping_with_hops_and_path(self, dispatcher, transport):
+        await _onboard(dispatcher, transport, ALICE_PK, "alice")
+        replies = await _send(
+            dispatcher,
+            transport,
+            ALICE_PK,
+            "PING",
+            hops=2,
+            path=["NorthRepeater", "SouthRepeater"],
+        )
+        assert len(replies) == 1
+        assert "PONG (2 hops)" in replies[0]
+        assert "via NorthRepeater → SouthRepeater" in replies[0]
+
+    async def test_ping_resolves_path_via_transport(self, dispatcher, transport):
+        await _onboard(dispatcher, transport, ALICE_PK, "alice")
+        transport._inbound_paths[ALICE_PK] = ["RelayA", "RelayB"]
+        replies = await _send(dispatcher, transport, ALICE_PK, "PING", hops=2)
+        assert "via RelayA → RelayB" in replies[0]
 
 
 class TestHelp:

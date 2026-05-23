@@ -23,6 +23,7 @@ class MockTransport:
         self.next_send_outcome: dict[str, SendOutcome] = defaultdict(lambda: SendOutcome.OK)
         self._contact_pubkeys: set[str] = set()
         self._contact_capacity = contact_capacity_max
+        self._inbound_paths: dict[str, list[str]] = {}
         self._started = False
         self._stopped = False
 
@@ -56,6 +57,10 @@ class MockTransport:
 
     async def prune_contact(self, pubkey: str) -> None:
         self._contact_pubkeys.discard(pubkey)
+        self._inbound_paths.pop(pubkey, None)
+
+    async def resolve_inbound_path(self, pubkey: str) -> list[str]:
+        return list(self._inbound_paths.get(pubkey, []))
 
     # Test helpers --------------------------------------------------------
 
@@ -65,8 +70,12 @@ class MockTransport:
         body: str,
         adv_name: str | None = None,
         received_at: int | None = None,
+        hops: int | None = None,
+        path: list[str] | None = None,
     ) -> None:
         self._contact_pubkeys.add(pubkey)
+        if path is not None:
+            self._inbound_paths[pubkey] = list(path)
         await self._events.put(
             TransportEvent(
                 type=TransportEventType.CONTACT_MSG_RECV,
@@ -75,6 +84,8 @@ class MockTransport:
                     adv_name=adv_name,
                     body=body,
                     received_at=received_at if received_at is not None else int(time.time()),
+                    hops=hops,
+                    path=path if path is not None else [],
                 ),
             )
         )
