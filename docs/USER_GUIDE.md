@@ -117,6 +117,12 @@ INBOX
 
 ---
 
+## Admin commands
+
+If your pubkey is listed in the BBS config as an admin, you can use moderation commands (`ADMIN BAN`, `ADMIN BOARD ADD`, etc.) and `ADVERT` to broadcast a flood mesh advertisement. See [OPERATIONS.md](OPERATIONS.md) for the full admin command list.
+
+---
+
 ## What you'll never see
 
 - **URLs** — they're useless on a small text client and waste airtime. News is headlines only.

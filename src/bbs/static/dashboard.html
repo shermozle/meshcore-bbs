@@ -204,6 +204,18 @@
     .tag { font-size: 0.7rem; padding: 1px 6px; border-radius: 4px; background: var(--border); }
     .tag.banned { background: rgba(245,101,101,.25); color: var(--bad); }
     .refresh-note { color: var(--muted); font-size: 0.75rem; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+    .actions button {
+      background: var(--border);
+      border: 1px solid var(--accent);
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .actions .action-status { color: var(--muted); font-size: 0.8rem; }
   </style>
 </head>
 <body>
@@ -235,6 +247,10 @@
   </nav>
   <main>
     <section id="tab-overview" class="tab active">
+      <div class="actions">
+        <button type="button" id="btn-flood-advert">Send flood advertisement</button>
+        <span class="action-status" id="advert-status"></span>
+      </div>
       <div class="cards" id="overview-cards"></div>
       <div id="overview-problems" class="problems"></div>
       <h2>Outbound queue</h2>
@@ -498,6 +514,25 @@
     document.getElementById('log-hide-dashboard').addEventListener('change', () => {
       if (document.getElementById('log-pause').checked) return;
       loadLogTail();
+    });
+
+    document.getElementById('btn-flood-advert').addEventListener('click', async () => {
+      const btn = document.getElementById('btn-flood-advert');
+      const status = document.getElementById('advert-status');
+      btn.disabled = true;
+      status.textContent = 'Sending…';
+      try {
+        const r = await fetch('/api/advert', { method: 'POST' });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) {
+          throw new Error(data.error || ('HTTP ' + r.status));
+        }
+        status.textContent = 'Flood advert sent at ' + new Date().toLocaleTimeString();
+      } catch (e) {
+        status.textContent = 'Failed: ' + e.message;
+      } finally {
+        btn.disabled = false;
+      }
     });
 
     setInterval(refresh, REFRESH_MS);

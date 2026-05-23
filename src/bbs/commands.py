@@ -80,6 +80,7 @@ HELP_TOPICS: dict[str, str] = {
     "SEND": "SEND <user> <text> - send mail (name, partial name, or pubkey).",
     "DELETE": "DELETE <id> - delete a mail.",
     "STATUS": "STATUS - BBS uptime, version, outbound queue depth.",
+    "ADVERT": "ADVERT - send flood advertisement (admin only).",
     "ADMIN": "ADMIN BAN|UNBAN|BOARD ADD|BOARD DEL|BROADCAST",
 }
 

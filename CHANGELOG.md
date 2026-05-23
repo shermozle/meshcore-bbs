@@ -5,6 +5,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.0] - 2026-05-23
+
+### Added
+- Admin `ADVERT` command triggers a flood mesh advertisement
+- Web dashboard button on Overview to send a flood advertisement (`POST /api/advert`)
+
+---
+
 ## [0.4.3] - 2026-05-23
 
 ### Changed

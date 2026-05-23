@@ -41,6 +41,17 @@ async def dashboard_app(
 
 
 @pytest.mark.asyncio
+async def test_api_advert_flood(dashboard_app, transport):
+    app, _, _ = dashboard_app
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post("/api/advert")
+        assert resp.status == 200
+        data = await resp.json()
+        assert data["ok"] is True
+    assert transport.adverts_sent == [True]
+
+
+@pytest.mark.asyncio
 async def test_api_status(dashboard_app):
     app, deps, _ = dashboard_app
     async with TestClient(TestServer(app)) as client:
@@ -97,6 +108,8 @@ async def test_dashboard_html(dashboard_app):
         assert "/api/status" in text
         assert "hdr-last-event" in text
         assert "hdr-queue" in text
+        assert "btn-flood-advert" in text
+        assert "/api/advert" in text
         assert "log-hide-dashboard" in text
         assert "CHART_BAR_PX" in text
         assert "main:has(#tab-logs.active)" in text

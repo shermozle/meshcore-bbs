@@ -272,6 +272,18 @@ class TestAdmin:
         replies = await _send(dispatcher, transport, self.ADMIN_PK, "BOARDS")
         assert "swap" in replies[0]
 
+    async def test_admin_advert_flood(self, dispatcher, transport):
+        await _onboard(dispatcher, transport, self.ADMIN_PK, "admin1")
+        replies = await _send(dispatcher, transport, self.ADMIN_PK, "ADVERT")
+        assert "OK" in replies[0] and "advert" in replies[0].lower()
+        assert transport.adverts_sent == [True]
+
+    async def test_non_admin_advert_blocked(self, dispatcher, transport):
+        await _onboard(dispatcher, transport, ALICE_PK, "alice")
+        replies = await _send(dispatcher, transport, ALICE_PK, "ADVERT")
+        assert "Unknown" in replies[0] or "?" in replies[0]
+        assert transport.adverts_sent == []
+
     async def test_admin_ban_user(self, dispatcher, transport, db):
         await _onboard(dispatcher, transport, self.ADMIN_PK, "admin1")
         await _onboard(dispatcher, transport, ALICE_PK, "alice")

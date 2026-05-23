@@ -34,6 +34,9 @@ Admins are identified by their full Curve25519 pubkey in `bbs.admin_pubkeys` (th
 | `ADMIN BOARD ADD <slug> <description>` | Create a new public board. |
 | `ADMIN BOARD DEL <slug>` | Delete a board (posts soft-deleted). |
 | `ADMIN BROADCAST <text>` | Stages a broadcast. Requires `ADMIN BROADCAST CONFIRM` within 2 min. |
+| `ADVERT` | Sends a flood advertisement so the BBS is visible across the mesh. |
+
+The web dashboard (**Overview** tab) has a **Send flood advertisement** button for the same action.
 
 All admin actions are written to `audit_log`. To review:
 

@@ -328,6 +328,15 @@ def register_dashboard_routes(app: web.Application, deps: DashboardDeps) -> None
             "path": path,
         })
 
+    async def api_advert(_: web.Request) -> web.Response:
+        try:
+            await deps.transport.send_advert(flood=True)
+        except Exception as e:
+            log.warning("manual flood advert failed: %s", e)
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+        await deps.db.audit(None, "advert", "source=dashboard flood=1")
+        return web.json_response({"ok": True})
+
     async def api_logs_stream(request: web.Request) -> web.StreamResponse:
         """Server-Sent Events stream of new log lines."""
         resp = web.StreamResponse(
@@ -364,6 +373,7 @@ def register_dashboard_routes(app: web.Application, deps: DashboardDeps) -> None
         return resp
 
     app.router.add_get("/api/status", api_status)
+    app.router.add_post("/api/advert", api_advert)
     app.router.add_get("/api/stats", api_stats)
     app.router.add_get("/api/activity", api_activity)
     app.router.add_get("/api/history", api_history)

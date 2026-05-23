@@ -189,6 +189,8 @@ class Dispatcher:
                 await self._handle_delete_mail(pk, parsed)
             elif v == "STATUS":
                 await self._handle_status(pk)
+            elif v == "ADVERT":
+                await self._handle_advert(pk)
             elif v.startswith("ADMIN"):
                 await self._handle_admin(pk, parsed)
             else:
@@ -378,6 +380,14 @@ class Dispatcher:
             pk,
             f"v{__version__} up {_fmt_uptime(uptime)} q={depth}",
         )
+
+    async def _handle_advert(self, pk: str) -> None:
+        if not self.admin.is_admin(pk):
+            await self._enqueue_reply(pk, "? Unknown command. Try: HELP")
+            return
+        await self.transport.send_advert(flood=True)
+        await self.db.audit(pk, "advert", "flood=1")
+        await self._enqueue_reply(pk, "OK flood advert sent")
 
     async def _handle_admin(self, pk: str, parsed: commands.ParsedCommand) -> None:
         if not self.admin.is_admin(pk):
