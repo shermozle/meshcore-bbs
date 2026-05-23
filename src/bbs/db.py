@@ -181,6 +181,20 @@ class Database:
         row = await cur.fetchone()
         return _user_from_row(row) if row else None
 
+    async def find_users_by_name_substring(self, needle: str) -> list[User]:
+        """Onboarded, non-banned users whose display name contains needle (case-insensitive)."""
+        if not needle:
+            return []
+        pattern = f"%{needle.lower()}%"
+        cur = await self.conn.execute(
+            """SELECT * FROM users
+               WHERE onboarded = 1 AND banned = 0
+                 AND display_name_lc LIKE ?
+               ORDER BY display_name_lc""",
+            (pattern,),
+        )
+        return [_user_from_row(r) for r in await cur.fetchall()]
+
     async def get_user_by_prefix(self, prefix: str) -> User | None:
         """Resolve by pubkey prefix (hex). Returns first match or None.
 

@@ -10,7 +10,7 @@ Send anything (`HELP`, `hi`, whatever). You'll get:
 
 ```
 Welcome to <BBS name>.
-Choose a display name (1-10 chars, A-Z 0-9 _ -).
+Choose a display name (1-10 chars, A-Z 0-9 _ - emoji).
 Reply: NAME <yourname>
 ```
 
@@ -25,7 +25,7 @@ You'll get `OK, you are alice. Try HELP for commands.` and you're in.
 Name rules:
 
 - 1–10 characters
-- letters, digits, `_`, `-` only
+- letters, digits, `_`, `-`, and emoji
 - must be unique
 - reserved names are blocked (`admin`, `bbs`, `system`, `me`, `all`, `help`, etc.)
 
@@ -93,7 +93,7 @@ Asynchronous user-to-user messages.
 | `INBOX` | List inbox (unread first, then read) |
 | `INBOX <page>` | Older mail |
 | `READMAIL <id>` | Read a mail and mark it read |
-| `SEND <user> <text>` | Send mail (recipient by name or pubkey prefix) |
+| `SEND <user> <text>` | Send mail (exact or partial name, or pubkey prefix) |
 | `DELETE <id>` | Delete a mail |
 
 When someone sends you mail and you're online (you've DM'd the BBS recently), the BBS pushes a `! 1 new mail. INBOX to view.` notification. Otherwise you'll see the count on your next interaction.

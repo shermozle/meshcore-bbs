@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 
 from ..config import MailConfig
 from ..db import Database
@@ -26,6 +27,12 @@ INBOX_PAGE_SIZE = 5
 PREVIEW_CHARS = 40
 
 
+@dataclass
+class RecipientResolution:
+    user: User | None = None
+    ambiguous_names: list[str] | None = None
+
+
 class MailService:
     def __init__(self, db: Database, cfg: MailConfig, max_body_chars: int) -> None:
         self.db = db
@@ -35,24 +42,37 @@ class MailService:
         # which is fine — the scheduled job is the durable path.
         self._last_notify_at: dict[str, float] = {}
 
-    async def resolve_recipient(self, identifier: str) -> User | None:
+    async def resolve_recipient(self, identifier: str) -> RecipientResolution:
         if not identifier:
-            return None
-        # Display-name resolution first; recipient must be onboarded.
+            return RecipientResolution()
+        # Exact display-name match first.
         by_name = await self.db.get_user_by_name(identifier)
         if by_name and by_name.onboarded and not by_name.banned:
-            return by_name
+            return RecipientResolution(user=by_name)
+        # Loose substring match (e.g. SEND VK2VSR → 🗼VK2VSR).
+        partials = await self.db.find_users_by_name_substring(identifier)
+        if len(partials) == 1:
+            return RecipientResolution(user=partials[0])
+        if len(partials) > 1:
+            names = [u.display_name for u in partials if u.display_name]
+            return RecipientResolution(ambiguous_names=names)
         # Pubkey-prefix fallback. Require at least 6 hex chars to reduce
         # collision risk.
         cleaned = identifier.lower()
         if len(cleaned) >= 6 and all(c in "0123456789abcdef" for c in cleaned):
             by_prefix = await self.db.get_user_by_prefix(cleaned)
             if by_prefix and by_prefix.onboarded and not by_prefix.banned:
-                return by_prefix
-        return None
+                return RecipientResolution(user=by_prefix)
+        return RecipientResolution()
 
     async def send(self, from_pk: str, recipient_id: str, body: str) -> tuple[bool, str, User | None]:
-        recipient = await self.resolve_recipient(recipient_id)
+        resolution = await self.resolve_recipient(recipient_id)
+        if resolution.ambiguous_names:
+            listed = ", ".join(resolution.ambiguous_names[:4])
+            if len(resolution.ambiguous_names) > 4:
+                listed += ", ..."
+            return False, f"! Ambiguous: {listed}", None
+        recipient = resolution.user
         if recipient is None:
             return False, "! No such user.", None
         body = body.strip()

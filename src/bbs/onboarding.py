@@ -11,24 +11,19 @@ don't repeat it).
 
 from __future__ import annotations
 
-import re
-
 from .config import BBSConfig
 from .db import Database
+from .names import NAME_MAX, NAME_MIN, validate_name_chars
 
 RESERVED_NAMES = frozenset(
     {"admin", "bbs", "system", "me", "all", "help", "root", "operator", "op"}
 )
 
-NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
-NAME_MIN = 1
-NAME_MAX = 10
-
 
 def welcome_text(bbs_name: str) -> str:
     return (
         f"Welcome to {bbs_name}.\n"
-        f"Choose a display name ({NAME_MIN}-{NAME_MAX} chars, A-Z 0-9 _ -).\n"
+        f"Choose a display name ({NAME_MIN}-{NAME_MAX} chars, A-Z 0-9 _ - emoji).\n"
         f"Reply: NAME <yourname>"
     )
 
@@ -41,8 +36,9 @@ def validate_name(name: str) -> str | None:
     """Return None if the name is acceptable, else a reason string."""
     if not (NAME_MIN <= len(name) <= NAME_MAX):
         return f"! Name too long (max {NAME_MAX})" if len(name) > NAME_MAX else "! Name too short"
-    if not NAME_PATTERN.match(name):
-        return "! Bad chars, use A-Z 0-9 _ -"
+    err = validate_name_chars(name)
+    if err:
+        return err
     if name.lower() in RESERVED_NAMES:
         return "! Reserved name"
     return None

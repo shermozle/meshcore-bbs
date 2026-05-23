@@ -132,6 +132,24 @@ class TestBoards:
 
 
 class TestMail:
+    async def test_send_partial_emoji_name(self, dispatcher, transport):
+        await _onboard(dispatcher, transport, BOB_PK, "🗼VK2VSR")
+        await _onboard(dispatcher, transport, ALICE_PK, "alice")
+        replies = await _send(dispatcher, transport, ALICE_PK, "SEND VK2VSR hello")
+        assert "OK" in replies[0]
+
+    async def test_send_ambiguous_partial(self, dispatcher, transport):
+        await _onboard(dispatcher, transport, ALICE_PK, "alice")
+        await _onboard(dispatcher, transport, BOB_PK, "alicia")
+        replies = await _send(dispatcher, transport, ALICE_PK, "SEND ali hi")
+        assert "Ambiguous" in replies[0]
+
+    async def test_name_emoji_onboarding(self, dispatcher, transport):
+        await _send(dispatcher, transport, ALICE_PK, "HELP")
+        transport.sent.clear()
+        replies = await _send(dispatcher, transport, ALICE_PK, "NAME 🗼VK2VSR")
+        assert "OK" in replies[0] and "VK2VSR" in replies[0]
+
     async def test_send_to_unknown(self, dispatcher, transport):
         await _onboard(dispatcher, transport, ALICE_PK, "alice")
         replies = await _send(dispatcher, transport, ALICE_PK, "SEND bob hello")
