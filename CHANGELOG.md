@@ -5,6 +5,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.0] - 2026-05-25
+
+### Added
+- `device.connection: tcp` — connect the BBS to a [pyMC_Repeater](https://github.com/pyMC-dev/pyMC_Repeater) companion over TCP (`tcp_host`, `tcp_port`) while keeping `connection: serial` for USB companions
+- [docs/PYMC_MIGRATION.md](docs/PYMC_MIGRATION.md) — identity export from the old companion and pyMC/Docker setup
+
+---
+
 ## [0.6.5] - 2026-05-25
 
 ### Added

@@ -51,6 +51,7 @@ DM your BBS from any MeshCore client. The first message produces an onboarding p
 
 - **[docs/USER_GUIDE.md](docs/USER_GUIDE.md)** — every command, what to type, what you'll see
 - **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** — Docker, Unraid, and bare-metal deploy instructions
+- **[docs/PYMC_MIGRATION.md](docs/PYMC_MIGRATION.md)** — move the BBS to a pyMC repeater companion over TCP
 - **[docs/OPERATIONS.md](docs/OPERATIONS.md)** — day-to-day care: logs, admin ops, metrics, recovery
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — module layout, data flow, failure handling
 - **[docs/DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md)** — Linear → Cursor → PR → dev image loop
