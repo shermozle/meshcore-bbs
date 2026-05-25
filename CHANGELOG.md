@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.1] - 2026-05-25
+
+### Fixed
+- `PING` / `PONG (direct)` no longer appends a cached or discovered mesh path when the inbound DM was received direct (0 hops)
+
+---
+
 ## [0.7.0] - 2026-05-25
 
 ### Added

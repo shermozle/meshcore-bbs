@@ -109,6 +109,14 @@ class TestPing:
         assert "PONG (direct)" in replies[0]
         assert "via" not in replies[0]
 
+    async def test_ping_direct_ignores_cached_path(self, dispatcher, transport):
+        """Stale inbound-path cache must not appear on a direct PONG."""
+        await _onboard(dispatcher, transport, ALICE_PK, "alice")
+        transport._inbound_paths[ALICE_PK] = ["RelayA", "RelayB"]  # noqa: SLF001
+        replies = await _send(dispatcher, transport, ALICE_PK, "PING", hops=0)
+        assert "PONG (direct)" in replies[0]
+        assert "via" not in replies[0]
+
     async def test_ping_with_hops_and_path(self, dispatcher, transport):
         await _onboard(dispatcher, transport, ALICE_PK, "alice")
         replies = await _send(
