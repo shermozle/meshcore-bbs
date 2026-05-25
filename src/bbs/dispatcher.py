@@ -246,9 +246,14 @@ class Dispatcher:
         else:
             hops_str = f"{inbound.hops} hop{'s' if inbound.hops != 1 else ''}"
 
-        path = list(inbound.path)
-        if not path:
-            path = await self.transport.resolve_inbound_path(inbound.pubkey)
+        # Direct (0 hops) messages carry no relay path; do not substitute a
+        # cached or discovered route — that is outbound routing, not this RX.
+        if inbound.hops == 0:
+            path: list[str] = []
+        else:
+            path = list(inbound.path)
+            if not path:
+                path = await self.transport.resolve_inbound_path(inbound.pubkey)
 
         path_str = _fmt_path(path)
         if path_str:
