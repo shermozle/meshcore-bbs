@@ -5,7 +5,7 @@ Key differences from the original spec-based stubs:
   - subscribe() takes EventType enum values, not strings
   - Callbacks receive Event objects; message data is in event.payload
   - get_contact_by_key_prefix() is a synchronous dict lookup
-  - create_serial() can return None on connection failure
+  - create_serial() / create_tcp() can return None on connection failure
   - DEVICE_INFO payload has max_contacts (not contact_count/contact_capacity)
 """
 
@@ -26,13 +26,20 @@ class MeshCoreTransport:
 
     def __init__(
         self,
-        serial_path: str,
+        *,
+        connection: str = "serial",
+        serial_path: str = "/dev/ttyUSB0",
         baud: int = 115200,
+        tcp_host: str = "",
+        tcp_port: int = 5000,
         expected_pubkey: str = "",
         max_reconnect_attempts: int = 0,
     ) -> None:
+        self.connection = connection
         self.serial_path = serial_path
         self.baud = baud
+        self.tcp_host = tcp_host
+        self.tcp_port = tcp_port
         self.expected_pubkey = expected_pubkey.lower()
         self.max_reconnect_attempts = max_reconnect_attempts
 
@@ -53,15 +60,31 @@ class MeshCoreTransport:
         # Lazy imports so test environments don't need the library installed.
         from meshcore import EventType, MeshCore  # type: ignore[import-not-found]
 
-        self._mc = await MeshCore.create_serial(
-            self.serial_path,
-            self.baud,
-            auto_reconnect=True,
-            max_reconnect_attempts=self.max_reconnect_attempts,
-        )
+        if self.connection == "tcp":
+            self._mc = await MeshCore.create_tcp(
+                self.tcp_host,
+                self.tcp_port,
+                auto_reconnect=True,
+                max_reconnect_attempts=self.max_reconnect_attempts,
+            )
+            connect_desc = f"{self.tcp_host}:{self.tcp_port}"
+        else:
+            self._mc = await MeshCore.create_serial(
+                self.serial_path,
+                self.baud,
+                auto_reconnect=True,
+                max_reconnect_attempts=self.max_reconnect_attempts,
+            )
+            connect_desc = self.serial_path
         if self._mc is None:
+            if self.connection == "tcp":
+                raise RuntimeError(
+                    f"Failed to connect to companion at {connect_desc}. "
+                    "Check pyMC companion TCP is enabled, host/port, and that "
+                    "no other client holds the connection (one client per companion)."
+                )
             raise RuntimeError(
-                f"Failed to connect to companion on {self.serial_path}. "
+                f"Failed to connect to companion on {connect_desc}. "
                 "Check cable, firmware (must be companion, not repeater), "
                 "and that no other process holds the port."
             )
@@ -78,6 +101,11 @@ class MeshCoreTransport:
                 f"{self.expected_pubkey}; refusing to run"
             )
 
+        log.info(
+            "companion connected (%s) pubkey=%s",
+            connect_desc,
+            self._self_pubkey[:12],
+        )
         await self._mc.commands.set_time(int(time.time()))
         await self._mc.ensure_contacts()
 

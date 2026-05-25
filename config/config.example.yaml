@@ -2,6 +2,12 @@
 # Copy to config.yaml and edit. Never check the real config.yaml into git.
 
 device:
+  # How the BBS reaches the MeshCore companion:
+  #   serial — USB companion inside/on the Docker host (default)
+  #   tcp    — pyMC_Repeater companion TCP (see docs/PYMC_MIGRATION.md)
+  connection: serial
+
+  # --- serial (connection: serial) ---
   # Path to the companion serial device inside the container.
   # The host's /dev/serial/by-id/... path is bind-mounted here via --device.
   # ESP32 devices (Heltec V3, T-Deck):     serial_path: /dev/ttyUSB0
@@ -9,9 +15,19 @@ device:
   # Both sides of the --device mapping must agree with this value.
   serial_path: /dev/ttyACM0
   baud: 115200
+
+  # --- tcp (connection: tcp) ---
+  # pyMC exposes each mesh.identities.companions[] entry on tcp_port (default 5000).
+  # On Linux Docker, use the repeater's LAN IP or add extra_hosts (see DEPLOYMENT.md).
+  tcp_host: ""
+  tcp_port: 5000
+
   # Optional sanity check. If set, BBS will refuse to start if the connected
   # companion's pubkey doesn't match (prevents talking to the wrong device).
   expected_pubkey: ""
+
+  # meshcore_py auto-reconnect retry cap (0 = library default behaviour).
+  max_reconnect_attempts: 0
 
 bbs:
   name: "MyBBS"
