@@ -119,8 +119,11 @@ Always start with `curl http://localhost:8080/health` for a quick diagnostic.
 
 The health HTTP port (8080 in the container, often mapped to 8888 on Unraid) serves a browser dashboard:
 
-- **`/dashboard`** — overview, usage charts, recent users/audit, log tail
+- **`/dashboard`** — overview, usage charts, recent users/audit, boards/posts management, full user directory, log tail
 - **`/api/status`**, **`/api/stats`**, **`/api/activity`**, **`/api/history`** — JSON for scripts or automation
+- **`/api/users`** — all users with pubkey, hop count, onboarded/banned flags, and CoreScope URLs (`https://corescope.wmcd.net.au/#/nodes/{pubkey}`)
+- **`/api/boards`** — `GET` list boards; `POST` `{"slug","description"}` create; `DELETE /api/boards/{slug}` remove board (soft-deletes its posts)
+- **`/api/boards/{slug}/posts`** — `GET` list posts; `POST` `{"author_pubkey","body"}` add; `DELETE /api/boards/{slug}/posts/{id}` soft-delete a post
 - **`/api/logs`** — tail `logging.path` (default `/data/bbs.log`)
 - **`/api/logs/stream`** — Server-Sent Events live log stream
 

@@ -10,9 +10,18 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from bbs import __version__
-from bbs.dashboard import DashboardDeps, build_history, build_queue, build_stats, build_status
+from bbs.dashboard import (
+    DashboardDeps,
+    build_boards,
+    build_history,
+    build_queue,
+    build_stats,
+    build_status,
+    build_users,
+)
 from bbs.health import make_health_app
 from bbs.health_state import HealthState
+from bbs.services.boards import BoardsService
 
 
 @pytest.fixture
@@ -27,6 +36,7 @@ async def dashboard_app(
     cfg, db, transport, dispatcher, outbound_worker, log_file,
 ):
     state = HealthState(transport_connected=True, last_event_at=time.time())
+    boards = BoardsService(db, cfg.bbs.max_msg_chars)
     deps = DashboardDeps(
         cfg=cfg,
         db=db,
@@ -36,6 +46,7 @@ async def dashboard_app(
         transport=transport,
         metrics=None,
         log_path=log_file,
+        boards=boards,
     )
     app = await make_health_app(db, state, None, deps)
     return app, deps, log_file
@@ -164,7 +175,12 @@ async def test_dashboard_html(dashboard_app):
         assert "hdr-last-event" in text
         assert "hdr-queue" in text
         assert 'data-tab="queue"' in text
+        assert 'data-tab="boards"' in text
+        assert 'data-tab="users"' in text
         assert "/api/queue" in text
+        assert "/api/boards" in text
+        assert "/api/users" in text
+        assert "CoreScope" in text
         assert "data-queue-action" in text
         assert "btn-flood-advert" in text
         assert "/api/advert" in text
@@ -185,11 +201,55 @@ async def test_health_includes_extended_status(dashboard_app):
 
 
 @pytest.mark.asyncio
+async def test_api_boards_and_users(dashboard_app, db):
+    app, deps, _ = dashboard_app
+    now = int(time.time())
+    pk = "c" * 64
+    await db.upsert_user_first_seen(pk, "Charlie", now)
+    await db.set_display_name(pk, "Charlie")
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post(
+            "/api/boards",
+            json={"slug": "testbd", "description": "Test board"},
+        )
+        assert resp.status == 200
+        assert (await resp.json())["ok"] is True
+
+        resp = await client.post(
+            "/api/boards/testbd/posts",
+            json={"author_pubkey": pk, "body": "hello from web"},
+        )
+        assert resp.status == 200
+        post_id = (await resp.json())["id"]
+        assert post_id > 0
+
+        posts = await (await client.get("/api/boards/testbd/posts")).json()
+        assert len(posts["posts"]) == 1
+        assert posts["posts"][0]["body"] == "hello from web"
+
+        users = await (await client.get("/api/users")).json()
+        match = [u for u in users["users"] if u["pubkey"] == pk]
+        assert len(match) == 1
+        assert match[0]["corescope_url"].endswith(pk)
+        assert "corescope.wmcd.net.au" in match[0]["corescope_url"]
+
+        resp = await client.delete(f"/api/boards/testbd/posts/{post_id}")
+        assert resp.status == 200
+        cur = await db.execute("SELECT deleted FROM board_posts WHERE id = ?", (post_id,))
+        assert (await cur.fetchone())[0] == 1
+
+        resp = await client.delete("/api/boards/testbd")
+        assert resp.status == 200
+        assert await deps.db.get_board("testbd") is None
+
+
+@pytest.mark.asyncio
 async def test_build_functions_directly(cfg, db, transport, dispatcher, outbound_worker, log_file):
+    boards = BoardsService(db, cfg.bbs.max_msg_chars)
     deps = DashboardDeps(
         cfg=cfg, db=db, state=HealthState(True, time.time()),
         dispatcher=dispatcher, outbound=outbound_worker, transport=transport,
-        metrics=None, log_path=log_file,
+        metrics=None, log_path=log_file, boards=boards,
     )
     status = await build_status(deps)
     assert status["version"] == __version__
@@ -200,3 +260,7 @@ async def test_build_functions_directly(cfg, db, transport, dispatcher, outbound
     await db.enqueue_outbound("pk99", "x", int(time.time()), trigger_command="PING")
     queue = await build_queue(deps)
     assert queue["depth"] >= 1
+    users = await build_users(deps)
+    assert "users" in users
+    boards_data = await build_boards(deps)
+    assert "boards" in boards_data

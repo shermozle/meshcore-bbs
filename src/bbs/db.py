@@ -302,6 +302,13 @@ class Database:
         )
         return [_user_from_row(r) for r in await cur.fetchall()]
 
+    async def list_all_users(self) -> list["User"]:
+        """Return every user, most recently active first."""
+        cur = await self.conn.execute(
+            "SELECT * FROM users ORDER BY last_seen DESC",
+        )
+        return [_user_from_row(r) for r in await cur.fetchall()]
+
     # -- boards ---------------------------------------------------------------
 
     async def list_boards(self) -> list[Board]:
@@ -324,12 +331,12 @@ class Database:
         await self.conn.commit()
 
     async def delete_board(self, slug: str) -> None:
-        # Soft-delete posts implicitly by cascading; we delete the board row.
-        # board_posts retain FK reference, so first soft-delete posts.
+        slug = slug.lower()
+        # Hard-delete posts so the board row can be removed (FK is enforced).
         await self.conn.execute(
-            "UPDATE board_posts SET deleted = 1 WHERE board_slug = ?", (slug.lower(),)
+            "DELETE FROM board_posts WHERE board_slug = ?", (slug,),
         )
-        await self.conn.execute("DELETE FROM boards WHERE slug = ?", (slug.lower(),))
+        await self.conn.execute("DELETE FROM boards WHERE slug = ?", (slug,))
         await self.conn.commit()
 
     async def add_post(self, board_slug: str, author: str, body: str, now: int) -> int:
@@ -359,6 +366,30 @@ class Database:
             )
             for r in await cur.fetchall()
         ]
+
+    async def get_post(self, post_id: int) -> BoardPost | None:
+        cur = await self.conn.execute(
+            "SELECT * FROM board_posts WHERE id = ?", (post_id,),
+        )
+        row = await cur.fetchone()
+        if not row:
+            return None
+        return BoardPost(
+            id=row["id"],
+            board_slug=row["board_slug"],
+            author_pubkey=row["author_pubkey"],
+            body=row["body"],
+            ts=row["ts"],
+            deleted=bool(row["deleted"]),
+        )
+
+    async def delete_post(self, post_id: int) -> bool:
+        cur = await self.conn.execute(
+            "UPDATE board_posts SET deleted = 1 WHERE id = ? AND deleted = 0",
+            (post_id,),
+        )
+        await self.conn.commit()
+        return cur.rowcount > 0
 
     # -- mail -----------------------------------------------------------------
 

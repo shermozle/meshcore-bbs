@@ -139,6 +139,7 @@ async def run(args: argparse.Namespace) -> int:
             transport=transport,
             metrics=metrics,
             log_path=cfg.logging.path,
+            boards=boards,
         )
         health_runner = await start_health_server(
             cfg.health, db, health_state, metrics, dashboard,
