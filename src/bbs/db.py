@@ -252,6 +252,15 @@ class Database:
         )
         await self.conn.commit()
 
+    async def touch_user_activity(self, pubkey: str, now: int) -> bool:
+        """Refresh last_seen for mail presence without incrementing msg_count."""
+        cur = await self.conn.execute(
+            "UPDATE users SET last_seen = ? WHERE pubkey = ?",
+            (now, pubkey),
+        )
+        await self.conn.commit()
+        return (cur.rowcount or 0) > 0
+
     async def set_display_name(self, pubkey: str, name: str) -> bool:
         """Set a user's display name. Returns False on uniqueness violation."""
         try:

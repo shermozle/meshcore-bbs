@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.4] - 2026-05-25
+
+### Changed
+- Mail “online” presence now includes any mesh activity attributed to a user (overheard adverts, path updates, public-channel posts, and flood traffic), not only DMs to the BBS — so inbox notifications can reach users who are active on the mesh without polling the BBS
+
+---
+
 ## [0.6.3] - 2026-05-23
 
 ### Fixed

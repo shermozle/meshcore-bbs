@@ -58,8 +58,8 @@ contacts:
   prune_after_days: 30
 
 mail:
-  # Push a "you have mail" notification if the recipient has DM'd the BBS
-  # within this many seconds.
+  # Push a "you have mail" notification if the recipient was seen on the mesh
+  # within this many seconds (DMs, adverts, channel posts, flood traffic, etc.).
   online_threshold_seconds: 900
   # Minimum gap between mail-notifications to a given recipient.
   notify_min_interval_seconds: 600
