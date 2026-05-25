@@ -26,11 +26,15 @@ from .health_state import HEALTH_HEARTBEAT_THRESHOLD, HealthState
 from .db import OUTBOUND_PAUSE_SECONDS
 from .dispatcher import _fmt_path
 from .outbound import OutboundWorker
+from .services.boards import BoardsService
 from .transport.base import Transport
 
 log = logging.getLogger(__name__)
 
+_CORESCOPE_NODE_URL = "https://corescope.wmcd.net.au/#/nodes/"
 _HISTORY_DAYS = 14
+_BOARD_POSTS_DEFAULT_LIMIT = 50
+_BOARD_POSTS_MAX_LIMIT = 200
 _LOG_TAIL_DEFAULT = 200
 _LOG_TAIL_MAX = 2000
 
@@ -58,6 +62,7 @@ class DashboardDeps:
     transport: Transport
     metrics: Metrics | None
     log_path: str
+    boards: BoardsService
 
 
 def _health_problems(state: HealthState, now: float) -> list[str]:
@@ -225,6 +230,85 @@ async def build_activity(deps: DashboardDeps) -> dict:
     ]
 
     return {"recent_users": users, "audit": audit, "pending_outbound": pending_outbound}
+
+
+def _corescope_url(pubkey: str) -> str:
+    return f"{_CORESCOPE_NODE_URL}{pubkey}"
+
+
+async def build_users(deps: DashboardDeps) -> dict:
+    now = int(time.time())
+    users_out: list[dict] = []
+    for u in await deps.db.list_all_users():
+        name = u.display_name or u.adv_name or u.pubkey[:8]
+        users_out.append({
+            "name": name,
+            "display_name": u.display_name,
+            "adv_name": u.adv_name,
+            "pubkey": u.pubkey,
+            "pubkey_prefix": u.pubkey[:12],
+            "corescope_url": _corescope_url(u.pubkey),
+            "msg_count": u.msg_count,
+            "first_seen": u.first_seen,
+            "last_seen": u.last_seen,
+            "last_seen_age": now - u.last_seen,
+            "last_hops": u.last_hops,
+            "onboarded": u.onboarded,
+            "banned": u.banned,
+            "banned_reason": u.banned_reason,
+        })
+    return {"users": users_out}
+
+
+async def build_boards(deps: DashboardDeps) -> dict:
+    boards = await deps.db.list_boards()
+    cur = await deps.db.execute(
+        """SELECT board_slug, COUNT(*) AS n FROM board_posts
+           WHERE deleted = 0 GROUP BY board_slug""",
+    )
+    post_counts = {row[0]: int(row[1]) for row in await cur.fetchall()}
+    return {
+        "boards": [
+            {
+                "slug": b.slug,
+                "description": b.description,
+                "created_at": b.created_at,
+                "post_count": post_counts.get(b.slug, 0),
+            }
+            for b in boards
+        ],
+    }
+
+
+async def build_board_posts(
+    deps: DashboardDeps, slug: str, limit: int, offset: int,
+) -> dict | None:
+    board = await deps.db.get_board(slug)
+    if board is None:
+        return None
+    posts = await deps.db.list_posts(slug, limit, offset)
+    items: list[dict] = []
+    for p in posts:
+        author = await deps.db.get_user(p.author_pubkey)
+        author_name = (
+            author.display_name if author and author.display_name
+            else (author.adv_name if author and author.adv_name else p.author_pubkey[:8])
+        )
+        items.append({
+            "id": p.id,
+            "board_slug": p.board_slug,
+            "author_pubkey": p.author_pubkey,
+            "author_name": author_name,
+            "body": p.body,
+            "ts": p.ts,
+        })
+    return {"slug": board.slug, "posts": items}
+
+
+def _boards_error(reply: str) -> str | None:
+    if reply.startswith("!"):
+        return reply[2:].strip() if len(reply) > 2 else reply
+    return None
 
 
 async def build_queue(deps: DashboardDeps) -> dict:
@@ -470,6 +554,94 @@ def register_dashboard_routes(app: web.Application, deps: DashboardDeps) -> None
         await deps.db.audit(None, "advert", "source=dashboard flood=1")
         return web.json_response({"ok": True})
 
+    async def api_users(_: web.Request) -> web.Response:
+        return web.json_response(await build_users(deps))
+
+    async def api_boards_list(_: web.Request) -> web.Response:
+        return web.json_response(await build_boards(deps))
+
+    async def api_boards_create(request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid JSON"}, status=400)
+        slug = str(body.get("slug", "")).strip()
+        description = str(body.get("description", ""))
+        if not slug:
+            return web.json_response({"ok": False, "error": "slug required"}, status=400)
+        reply = await deps.boards.add_board(slug, description)
+        err = _boards_error(reply)
+        if err:
+            return web.json_response({"ok": False, "error": err}, status=400)
+        await deps.db.audit(None, "board_add", f"slug={slug.lower()} source=dashboard")
+        return web.json_response({"ok": True, "slug": slug.lower()})
+
+    async def api_boards_delete(request: web.Request) -> web.Response:
+        slug = request.match_info.get("slug", "").lower()
+        if not slug:
+            return web.json_response({"ok": False, "error": "slug required"}, status=400)
+        reply = await deps.boards.delete_board(slug)
+        err = _boards_error(reply)
+        if err:
+            return web.json_response({"ok": False, "error": err}, status=404)
+        await deps.db.audit(None, "board_del", f"slug={slug} source=dashboard")
+        return web.json_response({"ok": True, "slug": slug})
+
+    async def api_board_posts_list(request: web.Request) -> web.Response:
+        slug = request.match_info.get("slug", "").lower()
+        try:
+            limit = int(request.query.get("limit", str(_BOARD_POSTS_DEFAULT_LIMIT)))
+        except ValueError:
+            limit = _BOARD_POSTS_DEFAULT_LIMIT
+        try:
+            offset = int(request.query.get("offset", "0"))
+        except ValueError:
+            offset = 0
+        limit = max(1, min(limit, _BOARD_POSTS_MAX_LIMIT))
+        offset = max(0, offset)
+        data = await build_board_posts(deps, slug, limit, offset)
+        if data is None:
+            return web.json_response({"ok": False, "error": "board not found"}, status=404)
+        return web.json_response(data)
+
+    async def api_board_posts_create(request: web.Request) -> web.Response:
+        slug = request.match_info.get("slug", "").lower()
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid JSON"}, status=400)
+        author_pubkey = str(body.get("author_pubkey", "")).strip()
+        post_body = str(body.get("body", ""))
+        if not author_pubkey:
+            return web.json_response({"ok": False, "error": "author_pubkey required"}, status=400)
+        user = await deps.db.get_user(author_pubkey)
+        if user is None:
+            return web.json_response({"ok": False, "error": "author not found"}, status=400)
+        reply = await deps.boards.post(slug, author_pubkey, post_body)
+        err = _boards_error(reply)
+        if err:
+            status = 404 if "not found" in err.lower() else 400
+            return web.json_response({"ok": False, "error": err}, status=status)
+        post_id = int(reply.split("id=", 1)[1].rstrip("]")) if "id=" in reply else 0
+        await deps.db.audit(
+            None, "board_post", f"slug={slug} id={post_id} author={author_pubkey[:12]}",
+        )
+        return web.json_response({"ok": True, "id": post_id, "slug": slug})
+
+    async def api_board_posts_delete(request: web.Request) -> web.Response:
+        slug = request.match_info.get("slug", "").lower()
+        try:
+            post_id = int(request.match_info["post_id"])
+        except (KeyError, ValueError):
+            return web.json_response({"ok": False, "error": "invalid post id"}, status=400)
+        post = await deps.db.get_post(post_id)
+        if post is None or post.deleted or post.board_slug != slug:
+            return web.json_response({"ok": False, "error": "post not found"}, status=404)
+        if not await deps.db.delete_post(post_id):
+            return web.json_response({"ok": False, "error": "post not found"}, status=404)
+        await deps.db.audit(None, "board_post_del", f"slug={slug} id={post_id}")
+        return web.json_response({"ok": True, "id": post_id})
+
     async def api_logs_stream(request: web.Request) -> web.StreamResponse:
         """Server-Sent Events stream of new log lines."""
         resp = web.StreamResponse(
@@ -512,6 +684,13 @@ def register_dashboard_routes(app: web.Application, deps: DashboardDeps) -> None
     app.router.add_post("/api/advert", api_advert)
     app.router.add_get("/api/stats", api_stats)
     app.router.add_get("/api/activity", api_activity)
+    app.router.add_get("/api/users", api_users)
+    app.router.add_get("/api/boards", api_boards_list)
+    app.router.add_post("/api/boards", api_boards_create)
+    app.router.add_delete("/api/boards/{slug}", api_boards_delete)
+    app.router.add_get("/api/boards/{slug}/posts", api_board_posts_list)
+    app.router.add_post("/api/boards/{slug}/posts", api_board_posts_create)
+    app.router.add_delete("/api/boards/{slug}/posts/{post_id}", api_board_posts_delete)
     app.router.add_get("/api/queue", api_queue)
     app.router.add_post("/api/queue/{msg_id}/remove", api_queue_remove)
     app.router.add_post("/api/queue/{msg_id}/move-back", api_queue_move_back)

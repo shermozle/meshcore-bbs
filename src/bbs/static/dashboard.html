@@ -244,6 +244,41 @@
     .queue-actions button:hover { border-color: var(--accent); color: var(--accent); }
     .queue-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
     .tag.paused { background: rgba(245,166,35,.2); color: var(--warn); }
+    .form-panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+    }
+    .form-panel h3 { margin: 0 0 10px; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+    .form-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-bottom: 8px; }
+    .form-row label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 0.75rem; }
+    .form-row input, .form-row select, .form-row textarea {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      min-width: 120px;
+    }
+    .form-row textarea { min-width: 280px; min-height: 56px; resize: vertical; }
+    .board-layout { display: grid; grid-template-columns: minmax(200px, 280px) 1fr; gap: 16px; }
+    @media (max-width: 720px) { .board-layout { grid-template-columns: 1fr; } }
+    .board-list { list-style: none; margin: 0; padding: 0; }
+    .board-list li {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .board-list li:hover, .board-list li.selected { background: rgba(91,159,212,.12); }
+    .board-list li.selected { border-left: 3px solid var(--accent); }
+    .board-list .slug { font-weight: 600; }
+    .board-list .meta { color: var(--muted); font-size: 0.75rem; }
+    a.ext { color: var(--accent); }
+    .status-msg { color: var(--muted); font-size: 0.8rem; margin-top: 8px; }
+    .tag.onboarded { background: rgba(61,214,140,.15); color: var(--ok); }
   </style>
 </head>
 <body>
@@ -271,6 +306,8 @@
     <button type="button" class="active" data-tab="overview">Overview</button>
     <button type="button" data-tab="usage">Usage</button>
     <button type="button" data-tab="activity">Activity</button>
+    <button type="button" data-tab="boards">Boards</button>
+    <button type="button" data-tab="users">Users</button>
     <button type="button" data-tab="queue">Queue</button>
     <button type="button" data-tab="logs">Logs</button>
   </nav>
@@ -300,6 +337,37 @@
         <th>When</th><th>Actor</th><th>Action</th><th>Detail</th>
       </tr></thead><tbody id="audit-tbody"></tbody></table>
     </section>
+    <section id="tab-boards" class="tab">
+      <div class="form-panel">
+        <h3>Create board</h3>
+        <div class="form-row">
+          <label>Slug (a-z0-9_-, max 16)
+            <input type="text" id="board-slug" maxlength="16" pattern="[a-z0-9_-]+" placeholder="general">
+          </label>
+          <label>Description
+            <input type="text" id="board-desc" maxlength="120" placeholder="optional">
+          </label>
+          <button type="button" id="btn-board-create">Create</button>
+        </div>
+        <p class="status-msg" id="board-form-status"></p>
+      </div>
+      <div class="board-layout">
+        <div>
+          <h2>Boards</h2>
+          <ul class="board-list" id="board-list"></ul>
+        </div>
+        <div id="board-detail">
+          <p class="refresh-note">Select a board to view and manage posts.</p>
+        </div>
+      </div>
+    </section>
+    <section id="tab-users" class="tab">
+      <h2>All users</h2>
+      <p class="refresh-note">Full directory (mesh WHO shows up to 5). Node links open CoreScope in a new tab.</p>
+      <table><thead><tr>
+        <th>Name</th><th>Pubkey</th><th>Msgs</th><th>Last seen</th><th>Hops</th><th>First seen</th><th>Status</th>
+      </tr></thead><tbody id="all-users-tbody"></tbody></table>
+    </section>
     <section id="tab-queue" class="tab">
       <h2>Outbound queue</h2>
       <p class="refresh-note">Retries move to the back so other nodes are not blocked.</p>
@@ -324,6 +392,8 @@
     const REFRESH_MS = 5000;
     let logOffset = 0;
     let logEventSource = null;
+    let selectedBoardSlug = null;
+    let boardAuthors = [];
 
     function fmtUptime(sec) {
       const h = Math.floor(sec / 3600);
@@ -408,6 +478,19 @@
       const r = await fetch(path);
       if (!r.ok) throw new Error(path + ' ' + r.status);
       return r.json();
+    }
+
+    async function fetchJsonBody(path, method, body) {
+      const r = await fetch(path, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || data.ok === false) {
+        throw new Error(data.error || (path + ' ' + r.status));
+      }
+      return data;
     }
 
     async function refresh() {
@@ -522,6 +605,8 @@
           `<tr><td>${fmtTime(a.ts)}</td><td>${a.actor || '—'}</td>` +
           `<td>${escapeHtml(a.action)}</td><td>${escapeHtml(a.detail || '')}</td></tr>`
         ).join('');
+
+        await Promise.all([loadUsers(), loadBoards()]);
       } catch (e) {
         console.error(e);
         document.getElementById('overview-problems').textContent = 'Refresh failed: ' + e.message;
@@ -531,6 +616,149 @@
     function escapeHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
+
+    async function loadUsers() {
+      const data = await fetchJson('/api/users');
+      boardAuthors = data.users.filter(u => !u.banned);
+      document.getElementById('all-users-tbody').innerHTML = data.users.map(u => {
+        const nodeLink =
+          `<a class="ext" href="${escapeHtml(u.corescope_url)}" target="_blank" rel="noopener">` +
+          `${escapeHtml(u.pubkey_prefix)}…</a>`;
+        let status = '';
+        if (u.banned) status = '<span class="tag banned">banned</span>';
+        else if (u.onboarded) status = '<span class="tag onboarded">onboarded</span>';
+        return `<tr><td>${escapeHtml(u.name)}</td><td class="mono">${nodeLink}</td>` +
+          `<td>${u.msg_count}</td><td>${fmtRel(u.last_seen)}</td>` +
+          `<td>${u.last_hops ?? '—'}</td><td>${fmtRel(u.first_seen)}</td><td>${status}</td></tr>`;
+      }).join('') || '<tr><td colspan="7">No users yet</td></tr>';
+    }
+
+    function renderBoardDetail(slug, posts) {
+      const el = document.getElementById('board-detail');
+      if (!slug) {
+        el.innerHTML = '<p class="refresh-note">Select a board to view and manage posts.</p>';
+        return;
+      }
+      const authorOpts = boardAuthors.map(u =>
+        `<option value="${escapeHtml(u.pubkey)}">${escapeHtml(u.name)} (${u.pubkey_prefix}…)</option>`
+      ).join('');
+      const rows = posts.map(p =>
+        `<tr><td>${p.id}</td><td>${escapeHtml(p.author_name)}</td>` +
+        `<td>${fmtRel(p.ts)}</td><td>${escapeHtml(p.body)}</td>` +
+        `<td><button type="button" class="btn-post-del" data-id="${p.id}">Delete</button></td></tr>`
+      ).join('') || '<tr><td colspan="5">No posts</td></tr>';
+      el.innerHTML =
+        `<h2>Board: ${escapeHtml(slug)}</h2>` +
+        `<div class="actions"><button type="button" id="btn-board-delete">Delete board</button></div>` +
+        `<div class="form-panel"><h3>Add post</h3>` +
+        `<div class="form-row">` +
+        `<label>Author<select id="post-author">${authorOpts}</select></label>` +
+        `<label>Body<textarea id="post-body" maxlength="500"></textarea></label>` +
+        `<button type="button" id="btn-post-create">Post</button></div>` +
+        `<p class="status-msg" id="post-form-status"></p></div>` +
+        `<table><thead><tr><th>ID</th><th>Author</th><th>When</th><th>Body</th><th></th></tr></thead>` +
+        `<tbody id="board-posts-tbody">${rows}</tbody></table>`;
+      document.getElementById('btn-board-delete').addEventListener('click', () => deleteBoard(slug));
+      document.getElementById('btn-post-create').addEventListener('click', () => createPost(slug));
+      el.querySelectorAll('.btn-post-del').forEach(btn => {
+        btn.addEventListener('click', () => deletePost(slug, btn.getAttribute('data-id')));
+      });
+    }
+
+    async function loadBoards() {
+      const data = await fetchJson('/api/boards');
+      const list = document.getElementById('board-list');
+      list.innerHTML = data.boards.map(b =>
+        `<li data-slug="${escapeHtml(b.slug)}" class="${b.slug === selectedBoardSlug ? 'selected' : ''}">` +
+        `<div class="slug">${escapeHtml(b.slug)}</div>` +
+        `<div class="meta">${b.post_count} post(s) · ${escapeHtml(b.description || '—')}</div></li>`
+      ).join('') || '<li class="refresh-note">No boards yet</li>';
+      list.querySelectorAll('li[data-slug]').forEach(li => {
+        li.addEventListener('click', () => selectBoard(li.getAttribute('data-slug')));
+      });
+      if (selectedBoardSlug && !data.boards.some(b => b.slug === selectedBoardSlug)) {
+        selectedBoardSlug = null;
+        renderBoardDetail(null, []);
+      } else if (selectedBoardSlug) {
+        const posts = await fetchJson('/api/boards/' + encodeURIComponent(selectedBoardSlug) + '/posts');
+        renderBoardDetail(selectedBoardSlug, posts.posts);
+      }
+    }
+
+    async function selectBoard(slug) {
+      selectedBoardSlug = slug;
+      const posts = await fetchJson('/api/boards/' + encodeURIComponent(slug) + '/posts');
+      await loadBoards();
+      renderBoardDetail(slug, posts.posts);
+    }
+
+    async function createBoard() {
+      const status = document.getElementById('board-form-status');
+      const slug = document.getElementById('board-slug').value.trim().toLowerCase();
+      const description = document.getElementById('board-desc').value.trim();
+      if (!slug) { status.textContent = 'Slug required'; return; }
+      status.textContent = 'Creating…';
+      try {
+        await fetchJsonBody('/api/boards', 'POST', { slug, description });
+        status.textContent = 'Board created.';
+        document.getElementById('board-slug').value = '';
+        document.getElementById('board-desc').value = '';
+        selectedBoardSlug = slug;
+        await refresh();
+      } catch (e) {
+        status.textContent = 'Failed: ' + e.message;
+      }
+    }
+
+    async function deleteBoard(slug) {
+      if (!confirm(`Delete board "${slug}" and soft-delete all its posts?`)) return;
+      try {
+        const r = await fetch('/api/boards/' + encodeURIComponent(slug), { method: 'DELETE' });
+        const data = await r.json();
+        if (!r.ok || !data.ok) throw new Error(data.error || r.status);
+        selectedBoardSlug = null;
+        await refresh();
+      } catch (e) {
+        alert('Delete failed: ' + e.message);
+      }
+    }
+
+    async function createPost(slug) {
+      const status = document.getElementById('post-form-status');
+      const author = document.getElementById('post-author').value;
+      const body = document.getElementById('post-body').value.trim();
+      if (!author || !body) { status.textContent = 'Author and body required'; return; }
+      status.textContent = 'Posting…';
+      try {
+        await fetchJsonBody(
+          '/api/boards/' + encodeURIComponent(slug) + '/posts',
+          'POST',
+          { author_pubkey: author, body },
+        );
+        status.textContent = 'Posted.';
+        document.getElementById('post-body').value = '';
+        await selectBoard(slug);
+      } catch (e) {
+        status.textContent = 'Failed: ' + e.message;
+      }
+    }
+
+    async function deletePost(slug, postId) {
+      if (!confirm(`Delete post ${postId}?`)) return;
+      try {
+        const r = await fetch(
+          '/api/boards/' + encodeURIComponent(slug) + '/posts/' + postId,
+          { method: 'DELETE' },
+        );
+        const data = await r.json();
+        if (!r.ok || !data.ok) throw new Error(data.error || r.status);
+        await selectBoard(slug);
+      } catch (e) {
+        alert('Delete failed: ' + e.message);
+      }
+    }
+
+    document.getElementById('btn-board-create').addEventListener('click', createBoard);
 
     async function runQueueAction(id, action, btn) {
       const statusEl = document.getElementById('queue-action-status');

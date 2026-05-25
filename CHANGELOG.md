@@ -5,6 +5,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.6.5] - 2026-05-25
+
+### Added
+- Web dashboard **Boards** tab: list/create/delete boards and view/add/delete posts via `/api/boards` and `/api/boards/{slug}/posts`
+- Web dashboard **Users** tab: full user directory (all users, not limited like mesh WHO) with CoreScope node links (`/api/users`)
+
+### Fixed
+- Deleting a board now removes its post rows first so SQLite foreign-key enforcement no longer blocks removal when posts exist
+
+---
+
 ## [0.6.4] - 2026-05-25
 
 ### Changed
