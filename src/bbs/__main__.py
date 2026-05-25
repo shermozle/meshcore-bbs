@@ -219,12 +219,12 @@ async def _event_pump(
                 log.warning("transport disconnected")
             elif event.type == TransportEventType.NEW_CONTACT:
                 log.debug("new contact: %s", (event.pubkey or "")[:12])
-            elif event.type == TransportEventType.ADVERTISEMENT:
-                # Touch last_seen if known.
-                if event.pubkey:
-                    user = await dispatcher.db.get_user(event.pubkey)
-                    if user is not None:
-                        await dispatcher.db.touch_user(event.pubkey, int(time.time()))
+                await dispatcher.record_mesh_activity(event.pubkey)
+            elif event.type in (
+                TransportEventType.ADVERTISEMENT,
+                TransportEventType.MESH_ACTIVITY,
+            ):
+                await dispatcher.record_mesh_activity(event.pubkey)
         except Exception:
             log.exception("event handler crashed for %s", event.type)
 

@@ -65,6 +65,13 @@ class MockTransport:
 
     # Test helpers --------------------------------------------------------
 
+    async def inject_mesh_activity(self, pubkey: str) -> None:
+        """Simulate overheard mesh traffic (advert, channel, flood) from a node."""
+        self._contact_pubkeys.add(pubkey)
+        await self._events.put(
+            TransportEvent(type=TransportEventType.MESH_ACTIVITY, pubkey=pubkey.lower())
+        )
+
     async def inject_inbound(
         self,
         pubkey: str,

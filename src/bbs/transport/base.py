@@ -19,6 +19,8 @@ class TransportEventType(str, Enum):
     CONTACT_MSG_RECV = "contact_msg_recv"
     NEW_CONTACT = "new_contact"
     ADVERTISEMENT = "advertisement"
+    # Mesh presence without a BBS command (adverts, path updates, channel/flood RX).
+    MESH_ACTIVITY = "mesh_activity"
 
 
 @dataclass

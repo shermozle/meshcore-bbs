@@ -96,7 +96,7 @@ Asynchronous user-to-user messages.
 | `SEND <user> <text>` | Send mail (exact or partial name, or pubkey prefix) |
 | `DELETE <id>` | Delete a mail |
 
-When someone sends you mail and you're online (you've DM'd the BBS recently), the BBS pushes a `! 1 new mail. INBOX to view.` notification. Otherwise you'll see the count on your next interaction.
+When someone sends you mail and you're **online** (the BBS has seen your node on the mesh recently — e.g. a DM, advert, or public-channel traffic within about 15 minutes), it pushes `! 1 new mail. INBOX to view.` Otherwise you'll see the count on your next BBS command.
 
 Example:
 

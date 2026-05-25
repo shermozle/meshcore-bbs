@@ -110,6 +110,17 @@ class Dispatcher:
 
         await self._handle_command(inbound, parsed)
 
+    async def record_mesh_activity(self, pubkey: str | None) -> None:
+        """Mark a known BBS user active on the mesh (mail notification presence)."""
+        if not pubkey:
+            return
+        pk = pubkey.lower()
+        if pk == self.transport.self_pubkey.lower():
+            return
+        now = int(time.time())
+        if await self.db.touch_user_activity(pk, now):
+            log.debug("mesh activity from %s", pk[:12])
+
     async def _reply_throttled(self, pubkey: str, decision: Decision) -> None:
         # Throttled reply: at most one per minute to avoid feedback loops.
         # We approximate this by piggybacking on the rate limiter itself.

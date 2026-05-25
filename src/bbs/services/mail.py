@@ -3,11 +3,13 @@
 Recipients can be addressed by display name (unique) or by pubkey prefix
 (>=6 hex chars, returns first match).
 
-"Online" for the purpose of notification means: the recipient has DM'd the
-BBS within `online_threshold_seconds` (default 15 min). If online, we push a
-notification at SEND time. Otherwise we defer; the periodic `mail_notify`
-scheduled job picks it up on the recipient's next interaction, which by then
-will have refreshed their `last_seen`.
+"Online" for the purpose of notification means: the recipient has been seen on
+the mesh within `online_threshold_seconds` (default 15 min). Activity includes
+DMs to the BBS, overheard advertisements, path updates, public-channel posts,
+and other flood traffic attributed to their node — all refresh `last_seen` via
+`Dispatcher.record_mesh_activity`. If online, we push a notification at SEND
+time. Otherwise we defer; the periodic `mail_notify` job picks them up once they
+appear active again.
 """
 
 from __future__ import annotations

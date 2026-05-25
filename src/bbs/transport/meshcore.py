@@ -85,6 +85,9 @@ class MeshCoreTransport:
         self._mc.subscribe(EventType.CONTACT_MSG_RECV, self._on_contact_msg)
         self._mc.subscribe(EventType.NEW_CONTACT, self._on_new_contact)
         self._mc.subscribe(EventType.ADVERTISEMENT, self._on_advertisement)
+        self._mc.subscribe(EventType.PATH_UPDATE, self._on_path_update)
+        self._mc.subscribe(EventType.CHANNEL_MSG_RECV, self._on_channel_msg)
+        self._mc.subscribe(EventType.RX_LOG_DATA, self._on_rx_log_data)
         self._mc.subscribe(EventType.CONNECTED, self._on_connected)
         self._mc.subscribe(EventType.DISCONNECTED, self._on_disconnected)
 
@@ -280,9 +283,38 @@ class MeshCoreTransport:
 
     def _on_advertisement(self, event: Any) -> None:
         payload = event.payload if hasattr(event, "payload") else event
-        pk = _normalise_pubkey(payload) or ""
+        pk = _normalise_pubkey(payload) or _pubkey_from_payload_dict(payload) or ""
         asyncio.create_task(
             self._events.put(TransportEvent(type=TransportEventType.ADVERTISEMENT, pubkey=pk))
+        )
+
+    def _on_path_update(self, event: Any) -> None:
+        payload = event.payload if hasattr(event, "payload") else event
+        pk = _pubkey_from_payload_dict(payload) or ""
+        asyncio.create_task(self._emit_mesh_activity(pk))
+
+    def _on_channel_msg(self, event: Any) -> None:
+        asyncio.create_task(self._handle_channel_msg(event))
+
+    async def _handle_channel_msg(self, event: Any) -> None:
+        payload = event.payload if hasattr(event, "payload") else event
+        pk = _origin_pubkey_from_flood_payload(payload, self._mc) or ""
+        await self._emit_mesh_activity(pk)
+
+    def _on_rx_log_data(self, event: Any) -> None:
+        asyncio.create_task(self._handle_rx_log_data(event))
+
+    async def _handle_rx_log_data(self, event: Any) -> None:
+        payload = event.payload if hasattr(event, "payload") else event
+        pk = _pubkey_from_rx_log(payload, self._mc) or ""
+        await self._emit_mesh_activity(pk)
+
+    async def _emit_mesh_activity(self, pubkey: str) -> None:
+        pk = (pubkey or "").lower()
+        if not pk or pk == self._self_pubkey:
+            return
+        await self._events.put(
+            TransportEvent(type=TransportEventType.MESH_ACTIVITY, pubkey=pk)
         )
 
     def _on_connected(self, event: Any) -> None:
@@ -302,6 +334,59 @@ def _get_attr(obj: Any, key: str) -> Any:
     if isinstance(obj, dict):
         return obj.get(key)
     return getattr(obj, key, None)
+
+
+def _pubkey_from_payload_dict(payload: Any) -> str | None:
+    pk = _get_attr(payload, "public_key") or _get_attr(payload, "pubkey")
+    if pk is None:
+        return None
+    if isinstance(pk, bytes):
+        return pk.hex().lower()
+    return str(pk).lower()
+
+
+def _resolve_pubkey_from_prefix(prefix: str, mc: Any) -> str | None:
+    """Map a path hash / pubkey prefix to a full contact pubkey."""
+    prefix = prefix.lower().strip()
+    if not prefix or mc is None:
+        return None
+    try:
+        contact = mc.get_contact_by_key_prefix(prefix)
+    except Exception:
+        return None
+    if contact is None:
+        return None
+    return _normalise_pubkey(contact)
+
+
+def _origin_pubkey_from_flood_payload(payload: Any, mc: Any) -> str | None:
+    """Best-effort sender pubkey from a multi-hop channel or flood observation."""
+    path_len = _get_attr(payload, "path_len")
+    if path_len is None or int(path_len) <= 0 or int(path_len) == 255:
+        return None
+    path_hex = _get_attr(payload, "path")
+    if not path_hex:
+        return None
+    mode = _get_attr(payload, "path_hash_mode")
+    hash_len = max(1, int(mode) + 1) if mode is not None else 1
+    first_hop = str(path_hex).lower()[: hash_len * 2]
+    return _resolve_pubkey_from_prefix(first_hop, mc)
+
+
+def _pubkey_from_rx_log(payload: Any, mc: Any) -> str | None:
+    """Extract a node pubkey from an overheard RF log packet when possible."""
+    adv_key = _get_attr(payload, "adv_key")
+    if adv_key:
+        return str(adv_key).lower()
+    path_hex = _get_attr(payload, "path")
+    path_len = _get_attr(payload, "path_len")
+    if path_hex and path_len and int(path_len) > 0:
+        hash_len = int(_get_attr(payload, "path_hash_size") or 1)
+        first_hop = str(path_hex).lower()[: hash_len * 2]
+        pk = _resolve_pubkey_from_prefix(first_hop, mc)
+        if pk:
+            return pk
+    return None
 
 
 def _normalise_pubkey(c: Any) -> str | None:
