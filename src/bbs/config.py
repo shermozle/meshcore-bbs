@@ -20,9 +20,14 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class DeviceConfig:
+    # ``serial`` — USB companion (default). ``tcp`` — pyMC repeater companion TCP port.
+    connection: str = "serial"
     serial_path: str = "/dev/ttyUSB0"
     baud: int = 115200
+    tcp_host: str = ""
+    tcp_port: int = 5000
     expected_pubkey: str = ""
+    max_reconnect_attempts: int = 0
 
 
 @dataclass
@@ -127,7 +132,12 @@ class Config:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> Config:
-        device = DeviceConfig(**raw.get("device", {}))
+        device_raw = raw.get("device", {})
+        device_fields = DeviceConfig.__dataclass_fields__
+        device = DeviceConfig(
+            **{k: v for k, v in device_raw.items() if k in device_fields}
+        )
+        _validate_device(device)
         bbs = BBSConfig(**raw.get("bbs", {}))
         limits = LimitsConfig(**raw.get("limits", {}))
         news_raw = raw.get("news", {})
@@ -187,3 +197,17 @@ class Config:
             setattr(self, name, getattr(new, name))
         log.info("config reloaded from %s", self._source_path)
         return True
+
+
+def _validate_device(device: DeviceConfig) -> None:
+    conn = (device.connection or "serial").strip().lower()
+    if conn not in ("serial", "tcp"):
+        raise ValueError(
+            f"device.connection must be 'serial' or 'tcp', got {device.connection!r}"
+        )
+    device.connection = conn
+    if conn == "tcp":
+        if not (device.tcp_host or "").strip():
+            raise ValueError("device.tcp_host is required when device.connection is tcp")
+        if not (1 <= int(device.tcp_port) <= 65535):
+            raise ValueError(f"device.tcp_port must be 1-65535, got {device.tcp_port}")

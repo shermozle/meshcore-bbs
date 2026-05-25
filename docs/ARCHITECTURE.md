@@ -83,7 +83,7 @@ src/bbs/
    companion firmware  ── decrypts using shared X25519 secret
         │
         ▼ (USB-serial)
-   meshcore_py
+   meshcore_py  (USB serial or TCP to pyMC companion)
         │
         ▼ (callback)
    MeshCoreTransport._on_contact_msg

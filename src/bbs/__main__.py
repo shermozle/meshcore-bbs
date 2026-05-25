@@ -77,16 +77,25 @@ async def make_transport(cfg: Config, use_mock: bool) -> Transport:
     from .transport.meshcore import MeshCoreTransport
 
     return MeshCoreTransport(
+        connection=cfg.device.connection,
         serial_path=cfg.device.serial_path,
         baud=cfg.device.baud,
+        tcp_host=cfg.device.tcp_host,
+        tcp_port=cfg.device.tcp_port,
         expected_pubkey=cfg.device.expected_pubkey,
+        max_reconnect_attempts=cfg.device.max_reconnect_attempts,
     )
 
 
 async def run(args: argparse.Namespace) -> int:
     cfg = Config.load(args.config)
     configure_logging(cfg.logging)
-    log.info("starting meshcore-bbs, config=%s db=%s", args.config, args.db)
+    log.info(
+        "starting meshcore-bbs, config=%s db=%s device=%s",
+        args.config,
+        args.db,
+        cfg.device.connection,
+    )
 
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
 

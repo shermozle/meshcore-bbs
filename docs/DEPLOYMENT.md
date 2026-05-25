@@ -6,7 +6,10 @@ This guide covers running the MeshCore BBS in production. Three deployment paths
 2. **Docker on Unraid** — the primary target
 3. **Bare metal / systemd** — if you don't want Docker
 
-All three require a MeshCore companion device flashed with **companion** firmware (not repeater, not room-server), connected to the host via USB.
+All three require a MeshCore **companion** identity the BBS can talk to:
+
+- **USB serial** (default) — companion firmware on a device attached to the Docker host via USB, or  
+- **TCP** — a companion exposed by [pyMC_Repeater](https://github.com/pyMC-dev/pyMC_Repeater) on the LAN ([PYMC_MIGRATION.md](PYMC_MIGRATION.md)).
 
 ---
 
@@ -306,3 +309,44 @@ Check `outbound_queue` depth. The throttle is intentionally conservative (1 send
 ### Schema migration failures
 
 The DB version is tracked via `PRAGMA user_version`. If a migration fails mid-way, the DB is left at the previous version and the next start will retry. Restore from backup if a migration leaves the DB in a bad state.
+
+---
+
+## 9. pyMC repeater (TCP companion)
+
+When the LoRa radio runs on a pyMC repeater elsewhere on your LAN, configure the BBS for TCP instead of USB serial.
+
+### 9.1 pyMC side
+
+1. Install and configure [pyMC_Repeater](https://github.com/pyMC-dev/pyMC_Repeater).  
+2. Add a companion under `mesh.identities.companions` with your migrated `identity_key` and `tcp_port` (default **5000**).  
+3. Restart `pymc-repeater` and confirm the companion TCP port is listening.
+
+Full identity migration steps (export keys from the old USB companion) are in **[PYMC_MIGRATION.md](PYMC_MIGRATION.md)**.
+
+### 9.2 BBS config
+
+```yaml
+device:
+  connection: tcp
+  tcp_host: "192.168.1.50"   # pyMC host IP (reachable from inside the container)
+  tcp_port: 5000
+  expected_pubkey: "<64-char-hex-pubkey>"
+```
+
+### 9.3 Docker
+
+- **Remove** the `devices:` USB mapping when using TCP-only.  
+- Ensure the container can reach `tcp_host` (use the LAN IP, not `127.0.0.1`, unless pyMC runs in the same network namespace).  
+- On Linux, optional compose snippet:
+
+  ```yaml
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  ```
+
+  then `tcp_host: host.docker.internal` if pyMC listens on the Docker host.
+
+### 9.4 Verify
+
+Same as §2.4: logs should show `BBS ready. self_pubkey=...` with the **same** pubkey prefix as before migration if the identity was copied correctly.

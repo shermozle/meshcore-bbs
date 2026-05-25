@@ -7,6 +7,9 @@ services:
     container_name: meshcore-bbs
     restart: unless-stopped
 
+    # For pyMC TCP companion instead of USB, set device.connection: tcp in
+    # config.yaml and remove/comment the devices: mapping below. See docs/PYMC_MIGRATION.md.
+
     # Map the companion's stable USB-serial path into the container.
     # Find the host path with:  ls -l /dev/serial/by-id/
     # Update the LEFT side to your actual by-id path.
