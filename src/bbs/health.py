@@ -113,7 +113,12 @@ async def make_health_app(
     if metrics is not None:
         async def metrics_handler(_: web.Request) -> web.Response:
             body = generate_latest(metrics.registry)
-            return web.Response(body=body, content_type=CONTENT_TYPE_LATEST)
+            # CONTENT_TYPE_LATEST includes a charset that aiohttp rejects;
+            # pass as a raw header instead.
+            return web.Response(
+                body=body,
+                headers={"Content-Type": CONTENT_TYPE_LATEST},
+            )
         app.router.add_get("/metrics", metrics_handler)
 
     return app
@@ -144,7 +149,10 @@ async def start_metrics_server(
 
     async def metrics_handler(_: web.Request) -> web.Response:
         body = generate_latest(metrics.registry)
-        return web.Response(body=body, content_type=CONTENT_TYPE_LATEST)
+        return web.Response(
+            body=body,
+            headers={"Content-Type": CONTENT_TYPE_LATEST},
+        )
 
     app.router.add_get("/metrics", metrics_handler)
     runner = web.AppRunner(app)
