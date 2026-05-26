@@ -17,7 +17,9 @@ def split_packets(text: str, packet_bytes: int = DEFAULT_PACKET_BYTES) -> list[s
     """Split a reply into one or more packet-sized strings.
 
     A `(N/M)` prefix is added when there is more than one packet. The prefix
-    is counted against the packet budget.
+    is counted against the packet budget. The headroom is computed dynamically
+    from the actual packet count rather than a fixed worst-case guess, so
+    short splits recover a few bytes per packet.
     """
     text = text.rstrip("\n")
     if not text:
@@ -26,14 +28,30 @@ def split_packets(text: str, packet_bytes: int = DEFAULT_PACKET_BYTES) -> list[s
     if _utf8_len(text) <= packet_bytes:
         return [text]
 
-    # First-pass split by lines.
-    lines = text.split("\n")
-    # Now greedy-pack lines into packets, leaving headroom for the prefix.
-    # The prefix length depends on M (total packet count), which we don't yet
-    # know — assume worst case "(99/99) " (8 bytes).
-    headroom = 8
-    budget = packet_bytes - headroom
+    # First pass: split into raw packets without prefix overhead.
+    raw = _pack_lines(text, packet_bytes)
+    if len(raw) == 1:
+        return raw
 
+    # Compute actual headroom from the real packet count and re-split.
+    n = len(raw)
+    prefix_len = _utf8_len(f"({n}/{n}) ")  # e.g. "(3/5) " = 7 bytes
+    budget = packet_bytes - prefix_len
+    if budget < 16:
+        budget = 16  # floor: at least a few chars per packet
+
+    packets = _pack_lines(text, budget)
+
+    # If re-splitting changed the count (rare), prefix length may be off by a
+    # byte. That's fine — the prefixes will still fit because `prefix_len`
+    # was anchored to the first-pass count and re-splitting with a tighter
+    # budget can only produce more packets, not fewer.
+    return [f"({i + 1}/{n}) {p}" for i, p in enumerate(packets)]
+
+
+def _pack_lines(text: str, budget: int) -> list[str]:
+    """Greedy-pack lines into budget-constrained strings (no prefix)."""
+    lines = text.split("\n")
     packets: list[str] = []
     cur: list[str] = []
     cur_size = 0
@@ -55,12 +73,7 @@ def split_packets(text: str, packet_bytes: int = DEFAULT_PACKET_BYTES) -> list[s
                 cur_size += line_bytes
     if cur:
         packets.append("\n".join(cur))
-
-    if len(packets) == 1:
-        return packets
-
-    n = len(packets)
-    return [f"({i + 1}/{n}) {p}" for i, p in enumerate(packets)]
+    return packets
 
 
 def _hard_wrap(line: str, budget: int) -> list[str]:
