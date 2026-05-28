@@ -103,6 +103,23 @@ class TestOutboundQueue:
         idx_pk2 = transport.sent.index(("pk2", "ok"))
         assert transport.sent[:idx_pk2].count(("pk1", "stuck")) <= 1
 
+    async def test_defers_when_radio_unavailable(self, db, transport, cfg):
+        """Companion down must not block the worker on meshcore sends."""
+        now = int(time.time())
+        msg_id = await db.enqueue_outbound("pk1", "wait", now, priority=10)
+        transport._stopped = True  # noqa: SLF001 — simulate disconnect
+        worker = OutboundWorker(db, transport, cfg.limits)
+        worker.start()
+        await asyncio.sleep(0.5)
+        await worker.stop(drain_timeout_seconds=1.0)
+        assert not transport.sent
+        cur = await db.execute(
+            "SELECT attempts, status FROM outbound_queue WHERE id = ?", (msg_id,),
+        )
+        row = await cur.fetchone()
+        assert row[0] == 0
+        assert row[1] == "pending"
+
     async def test_pause_defers_send(self, db, transport, cfg):
         now = int(time.time())
         msg_id = await db.enqueue_outbound("pk1", "wait", now, priority=10)
