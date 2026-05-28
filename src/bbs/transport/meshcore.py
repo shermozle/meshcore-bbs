@@ -20,6 +20,25 @@ from .base import InboundMessage, SendOutcome, TransportEvent, TransportEventTyp
 
 log = logging.getLogger(__name__)
 
+# Upper bounds so a dead companion cannot block the shared asyncio event loop.
+_CMD_SEND_TIMEOUT = 60.0
+_CMD_DEVICE_QUERY_TIMEOUT = 8.0
+_CMD_PATH_DISCOVERY_TIMEOUT = 4.0
+_CMD_GET_MSG_TIMEOUT = 8.0
+_CMD_GET_CONTACTS_TIMEOUT = 10.0
+_CMD_ADVERT_TIMEOUT = 15.0
+_CMD_SET_TIME_TIMEOUT = 8.0
+_CMD_REMOVE_CONTACT_TIMEOUT = 8.0
+_CMD_CONNECT_TIMEOUT = 30.0
+
+# BBS-level reconnect when meshcore_py exhausts its own retry budget.
+_RECONNECT_BACKOFF_INITIAL = 1.0
+_RECONNECT_BACKOFF_MAX = 60.0
+_RECONNECT_BACKOFF_FACTOR = 2.0
+
+# Config ``max_reconnect_attempts: 0`` means unlimited (not zero tries).
+_UNLIMITED_LIBRARY_RECONNECTS = 10**9
+
 
 class MeshCoreTransport:
     """Production transport wrapping the meshcore library."""
@@ -47,11 +66,18 @@ class MeshCoreTransport:
         self._events: asyncio.Queue[TransportEvent] = asyncio.Queue()
         self._self_pubkey: str = ""
         self._poll_task: asyncio.Task | None = None
+        self._reconnect_task: asyncio.Task | None = None
         self._path_cache: dict[str, list[str]] = {}
 
     @property
     def self_pubkey(self) -> str:
         return self._self_pubkey
+
+    @property
+    def radio_available(self) -> bool:
+        if self._mc is None:
+            return False
+        return bool(self._mc.is_connected)
 
     def events(self) -> asyncio.Queue[TransportEvent]:
         return self._events
@@ -60,12 +86,16 @@ class MeshCoreTransport:
         # Lazy imports so test environments don't need the library installed.
         from meshcore import EventType, MeshCore  # type: ignore[import-not-found]
 
+        library_reconnects = self.max_reconnect_attempts
+        if library_reconnects <= 0:
+            library_reconnects = _UNLIMITED_LIBRARY_RECONNECTS
+
         if self.connection == "tcp":
             self._mc = await MeshCore.create_tcp(
                 self.tcp_host,
                 self.tcp_port,
                 auto_reconnect=True,
-                max_reconnect_attempts=self.max_reconnect_attempts,
+                max_reconnect_attempts=library_reconnects,
             )
             connect_desc = f"{self.tcp_host}:{self.tcp_port}"
         else:
@@ -73,7 +103,7 @@ class MeshCoreTransport:
                 self.serial_path,
                 self.baud,
                 auto_reconnect=True,
-                max_reconnect_attempts=self.max_reconnect_attempts,
+                max_reconnect_attempts=library_reconnects,
             )
             connect_desc = self.serial_path
         if self._mc is None:
@@ -106,8 +136,12 @@ class MeshCoreTransport:
             connect_desc,
             self._self_pubkey[:12],
         )
-        await self._mc.commands.set_time(int(time.time()))
-        await self._mc.ensure_contacts()
+        await self._run_mc(
+            self._mc.commands.set_time(int(time.time())),
+            _CMD_SET_TIME_TIMEOUT,
+            "set_time",
+        )
+        await self._run_mc(self._mc.ensure_contacts(), _CMD_GET_CONTACTS_TIMEOUT, "ensure_contacts")
 
         # Subscribe to firmware events using EventType enums.
         self._mc.subscribe(EventType.CONTACT_MSG_RECV, self._on_contact_msg)
@@ -127,8 +161,18 @@ class MeshCoreTransport:
         self._poll_task = asyncio.create_task(
             self._message_poll_loop(), name="msg_poll"
         )
+        self._reconnect_task = asyncio.create_task(
+            self._reconnect_supervisor(), name="transport_reconnect",
+        )
 
     async def stop(self) -> None:
+        if self._reconnect_task is not None:
+            self._reconnect_task.cancel()
+            try:
+                await self._reconnect_task
+            except asyncio.CancelledError:
+                pass
+            self._reconnect_task = None
         if self._poll_task is not None:
             self._poll_task.cancel()
             try:
@@ -148,57 +192,75 @@ class MeshCoreTransport:
         firmware that doesn't send MESSAGES_WAITING push notifications."""
         while True:
             await asyncio.sleep(30)
-            if self._mc is None:
+            if self._mc is None or not self.radio_available:
                 continue
-            try:
-                await self._mc.commands.get_msg()
-            except Exception as e:
-                log.debug("poll get_msg error: %s", e)
+            await self._run_mc(
+                self._mc.commands.get_msg(),
+                _CMD_GET_MSG_TIMEOUT,
+                "poll get_msg",
+            )
 
     async def send_msg(self, to_pubkey: str, body: str) -> SendOutcome:
         """Send a DM with ACK retry + flood fallback."""
-        if self._mc is None:
+        if self._mc is None or not self.radio_available:
             return SendOutcome.ERROR
-        try:
-            res = await self._mc.commands.send_msg_with_retry(to_pubkey, body)
-        except Exception as e:
-            log.warning("send_msg_with_retry raised: %s", e)
+        res = await self._run_mc(
+            self._mc.commands.send_msg_with_retry(
+                to_pubkey, body, max_attempts=2, min_timeout=3.0,
+            ),
+            _CMD_SEND_TIMEOUT,
+            "send_msg_with_retry",
+        )
+        if res is None:
             return SendOutcome.ERROR
         return _interpret_send_result(res)
 
     async def send_advert(self, *, flood: bool = False) -> None:
-        if self._mc is not None:
-            try:
-                await self._mc.commands.send_advert(flood=flood)
-                log.info("advertisement sent (flood=%s)", flood)
-            except Exception as e:
-                log.warning("send_advert failed: %s", e)
+        if self._mc is None or not self.radio_available:
+            return
+        res = await self._run_mc(
+            self._mc.commands.send_advert(flood=flood),
+            _CMD_ADVERT_TIMEOUT,
+            "send_advert",
+        )
+        if res is not None:
+            log.info("advertisement sent (flood=%s)", flood)
 
     async def sync_time(self, epoch: int) -> None:
-        if self._mc is not None:
-            await self._mc.commands.set_time(epoch)
+        if self._mc is None or not self.radio_available:
+            return
+        await self._run_mc(
+            self._mc.commands.set_time(epoch),
+            _CMD_SET_TIME_TIMEOUT,
+            "set_time",
+        )
 
     async def contact_capacity(self) -> tuple[int, int]:
         if self._mc is None:
             return (0, 0)
         used = len(self._mc.contacts)
-        try:
-            event = await self._mc.commands.send_device_query()
-            if not event.is_error():
-                # DEVICE_INFO payload uses max_contacts for capacity.
-                cap = int(event.payload.get("max_contacts") or used)
-                return (used, cap)
-        except Exception:
-            pass
+        if not self.radio_available:
+            return (used, used)
+        event = await self._run_mc(
+            self._mc.commands.send_device_query(),
+            _CMD_DEVICE_QUERY_TIMEOUT,
+            "send_device_query",
+        )
+        if event is not None and not event.is_error():
+            cap = int(event.payload.get("max_contacts") or used)
+            return (used, cap)
         return (used, used)
 
     async def prune_contact(self, pubkey: str) -> None:
-        if self._mc is None:
+        if self._mc is None or not self.radio_available:
             return
-        try:
-            await self._mc.commands.remove_contact(pubkey)
-        except Exception as e:
-            log.warning("remove_contact(%s) failed: %s", pubkey[:8], e)
+        res = await self._run_mc(
+            self._mc.commands.remove_contact(pubkey),
+            _CMD_REMOVE_CONTACT_TIMEOUT,
+            "remove_contact",
+        )
+        if res is None:
+            log.warning("remove_contact(%s) failed or timed out", pubkey[:8])
 
     async def resolve_inbound_path(self, pubkey: str) -> list[str]:
         """Return the inbound mesh path for *pubkey* (best-effort)."""
@@ -209,7 +271,9 @@ class MeshCoreTransport:
         if cached is not None:
             return list(cached)
 
-        path = await self._discover_inbound_path(pk)
+        path: list[str] = []
+        if self.radio_available:
+            path = await self._discover_inbound_path(pk)
         if not path:
             path = _path_from_contact(self._mc, pk)
         if path:
@@ -218,13 +282,13 @@ class MeshCoreTransport:
 
     async def _discover_inbound_path(self, pubkey: str) -> list[str]:
         """Ask the companion for the inbound route via path discovery."""
-        try:
-            event = await self._mc.commands.send_path_discovery_sync(
+        event = await self._run_mc(
+            self._mc.commands.send_path_discovery_sync(
                 pubkey, min_timeout=3.0,
-            )
-        except Exception as e:
-            log.warning("path discovery failed for %s: %s", pubkey[:12], e)
-            return []
+            ),
+            _CMD_PATH_DISCOVERY_TIMEOUT,
+            f"path_discovery {pubkey[:12]}",
+        )
         if event is None or event.is_error():
             return []
 
@@ -252,6 +316,50 @@ class MeshCoreTransport:
 
     # -- internals ------------------------------------------------------------
 
+    async def _run_mc(self, coro: Any, timeout: float, label: str) -> Any:
+        """Run a meshcore command with a hard timeout so the event loop stays responsive."""
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            log.warning("%s timed out after %.1fs", label, timeout)
+            return None
+        except Exception as e:
+            log.warning("%s failed: %s", label, e)
+            return None
+
+    async def _reconnect_supervisor(self) -> None:
+        """Keep trying to restore the companion link after meshcore_py gives up."""
+        backoff = _RECONNECT_BACKOFF_INITIAL
+        while True:
+            await asyncio.sleep(backoff)
+            if self._mc is None:
+                return
+            if self.radio_available:
+                backoff = _RECONNECT_BACKOFF_INITIAL
+                continue
+            log.info(
+                "companion unavailable; reconnect attempt (backoff=%.0fs)",
+                backoff,
+            )
+            try:
+                await asyncio.wait_for(self._mc.connect(), timeout=_CMD_CONNECT_TIMEOUT)
+                await self._run_mc(
+                    self._mc.ensure_contacts(),
+                    _CMD_GET_CONTACTS_TIMEOUT,
+                    "ensure_contacts",
+                )
+                backoff = _RECONNECT_BACKOFF_INITIAL
+                await self._events.put(
+                    TransportEvent(type=TransportEventType.CONNECTED, reconnected=True),
+                )
+                log.info("companion reconnected via supervisor")
+            except Exception as e:
+                log.warning("companion reconnect failed: %s", e)
+                backoff = min(
+                    backoff * _RECONNECT_BACKOFF_FACTOR,
+                    _RECONNECT_BACKOFF_MAX,
+                )
+
     def _on_contact_msg(self, event: Any) -> None:
         asyncio.create_task(self._handle_contact_msg(event))
 
@@ -265,9 +373,13 @@ class MeshCoreTransport:
             return
         # get_contact_by_key_prefix is a synchronous dict lookup in 2.3.x.
         contact = self._mc.get_contact_by_key_prefix(prefix)
-        if contact is None:
+        if contact is None and self.radio_available:
             # Contacts may not be loaded yet — refresh and retry once.
-            await self._mc.commands.get_contacts()
+            await self._run_mc(
+                self._mc.commands.get_contacts(),
+                _CMD_GET_CONTACTS_TIMEOUT,
+                "get_contacts",
+            )
             contact = self._mc.get_contact_by_key_prefix(prefix)
         if contact is None:
             log.warning("inbound from unresolved prefix %s; dropping", prefix)
@@ -352,7 +464,13 @@ class MeshCoreTransport:
             self._events.put(TransportEvent(type=TransportEventType.CONNECTED, reconnected=reconnected))
         )
         if reconnected and self._mc is not None:
-            asyncio.create_task(self._mc.commands.get_contacts())
+            asyncio.create_task(
+                self._run_mc(
+                    self._mc.commands.get_contacts(),
+                    _CMD_GET_CONTACTS_TIMEOUT,
+                    "get_contacts",
+                )
+            )
 
     def _on_disconnected(self, event: Any) -> None:
         asyncio.create_task(self._events.put(TransportEvent(type=TransportEventType.DISCONNECTED)))

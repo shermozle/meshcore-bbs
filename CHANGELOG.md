@@ -5,6 +5,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.2] - 2026-05-28
+
+### Fixed
+- Companion / repeater unavailability no longer freezes the web dashboard and health HTTP server: radio commands use hard timeouts, outbound and scheduled jobs skip sends while disconnected, and a BBS-level reconnect supervisor retries with exponential backoff (1s–60s) after meshcore_py gives up
+- `device.max_reconnect_attempts: 0` now means unlimited library reconnects (was incorrectly passed through as zero attempts)
+
+---
+
 ## [0.7.1] - 2026-05-25
 
 ### Fixed

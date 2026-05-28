@@ -92,10 +92,11 @@ async def build_status(deps: DashboardDeps) -> dict:
         last_event_age = int(now - deps.state.last_event_at)
 
     contacts_used, contacts_cap = 0, 0
-    try:
-        contacts_used, contacts_cap = await deps.transport.contact_capacity()
-    except Exception:
-        log.debug("contact_capacity unavailable", exc_info=True)
+    if deps.transport.radio_available:
+        try:
+            contacts_used, contacts_cap = await deps.transport.contact_capacity()
+        except Exception:
+            log.debug("contact_capacity unavailable", exc_info=True)
 
     queue_pending = await deps.db.outbound_pending_depth()
 
@@ -323,10 +324,13 @@ async def build_queue(deps: DashboardDeps) -> dict:
     for msg in messages:
         pk = msg.to_pubkey
         if pk not in path_cache:
-            try:
-                path_cache[pk] = await deps.transport.resolve_inbound_path(pk)
-            except Exception:
-                log.debug("path resolve failed for %s", pk[:12], exc_info=True)
+            if deps.transport.radio_available:
+                try:
+                    path_cache[pk] = await deps.transport.resolve_inbound_path(pk)
+                except Exception:
+                    log.debug("path resolve failed for %s", pk[:12], exc_info=True)
+                    path_cache[pk] = []
+            else:
                 path_cache[pk] = []
         if pk not in name_cache:
             user = await deps.db.get_user(pk)

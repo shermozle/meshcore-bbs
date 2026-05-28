@@ -26,7 +26,7 @@ device:
   # companion's pubkey doesn't match (prevents talking to the wrong device).
   expected_pubkey: ""
 
-  # meshcore_py auto-reconnect retry cap (0 = library default behaviour).
+  # meshcore_py auto-reconnect retry cap (0 = unlimited; BBS also supervises reconnect).
   max_reconnect_attempts: 0
 
 bbs:

@@ -109,6 +109,15 @@ class OutboundWorker:
             await self.db.reschedule_outbound(msg.id, new_next, msg.attempts)
             return False
 
+        if not self.transport.radio_available:
+            # Companion down — leave the row claimed; next_attempt backoff applies.
+            backoff = min(BACKOFF_BASE_SECONDS, 15)
+            await self.db.reschedule_outbound(
+                msg.id, int(time.time()) + backoff, msg.attempts,
+            )
+            log.debug("outbound %d deferred: companion unavailable", msg.id)
+            return False
+
         self.sends_attempted += 1
         outcome = await self.transport.send_msg(msg.to_pubkey, msg.body)
         self._last_send_at = time.time()

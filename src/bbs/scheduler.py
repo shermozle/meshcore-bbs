@@ -76,6 +76,8 @@ def start_all(
 
     # Contact prune: evict idle contacts when capacity is tight.
     async def contact_prune_job() -> None:
+        if not transport.radio_available:
+            return
         used, cap = await transport.contact_capacity()
         if cap == 0:
             return
@@ -113,6 +115,8 @@ def start_all(
 
     # Time resync every 6 hours.
     async def time_sync_job() -> None:
+        if not transport.radio_available:
+            return
         await transport.sync_time(int(time.time()))
     tasks.append(asyncio.create_task(
         loop("time_sync", 6 * 3600, time_sync_job), name="time_sync",
@@ -120,6 +124,8 @@ def start_all(
 
     # Periodic advertisement so the BBS stays visible on the mesh.
     async def advert_job() -> None:
+        if not transport.radio_available:
+            return
         await transport.send_advert()
     tasks.append(asyncio.create_task(
         loop("advert", 12 * 3600, advert_job), name="advert",

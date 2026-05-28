@@ -32,6 +32,10 @@ class MockTransport:
     def self_pubkey(self) -> str:
         return self._self_pubkey
 
+    @property
+    def radio_available(self) -> bool:
+        return not self._stopped
+
     async def start(self) -> None:
         self._started = True
         await self._events.put(TransportEvent(type=TransportEventType.CONNECTED))
