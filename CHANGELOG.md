@@ -5,6 +5,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.7.3] - 2026-05-29
+
+### Fixed
+- Duplicate DM replies and outbound queue blow-ups when the web dashboard was open: auto-refresh no longer runs radio path discovery on every poll; failed discovery is backed off for two minutes; direct (0-hop) peers skip discovery; contact-stored paths are preferred over discovery; all companion commands are serialized on one lock so path discovery cannot interleave with outbound sends (BBS-17)
+
+---
+
 ## [0.7.2] - 2026-05-28
 
 ### Fixed

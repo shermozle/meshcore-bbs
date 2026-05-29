@@ -326,7 +326,9 @@ async def build_queue(deps: DashboardDeps) -> dict:
         if pk not in path_cache:
             if deps.transport.radio_available:
                 try:
-                    path_cache[pk] = await deps.transport.resolve_inbound_path(pk)
+                    path_cache[pk] = await deps.transport.resolve_inbound_path(
+                        pk, discover=False,
+                    )
                 except Exception:
                     log.debug("path resolve failed for %s", pk[:12], exc_info=True)
                     path_cache[pk] = []
