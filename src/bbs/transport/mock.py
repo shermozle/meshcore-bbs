@@ -64,8 +64,9 @@ class MockTransport:
         self._contact_pubkeys.discard(pubkey)
         self._inbound_paths.pop(pubkey, None)
 
-    async def resolve_inbound_path(self, pubkey: str) -> list[str]:
-        return list(self._inbound_paths.get(pubkey, []))
+    async def resolve_inbound_path(self, pubkey: str, *, discover: bool = True) -> list[str]:
+        del discover  # mock has no radio path discovery
+        return list(self._inbound_paths.get(pubkey.lower(), []))
 
     # Test helpers --------------------------------------------------------
 

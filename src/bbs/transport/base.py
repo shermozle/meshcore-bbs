@@ -92,6 +92,10 @@ class Transport(Protocol):
 
     async def prune_contact(self, pubkey: str) -> None: ...
 
-    async def resolve_inbound_path(self, pubkey: str) -> list[str]:
-        """Best-effort inbound route for *pubkey* (empty when unknown)."""
+    async def resolve_inbound_path(self, pubkey: str, *, discover: bool = True) -> list[str]:
+        """Best-effort inbound route for *pubkey* (empty when unknown).
+
+        When *discover* is false, only cached or contact-stored paths are returned
+        (no radio path-discovery command).
+        """
         ...

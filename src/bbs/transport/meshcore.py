@@ -31,6 +31,9 @@ _CMD_SET_TIME_TIMEOUT = 8.0
 _CMD_REMOVE_CONTACT_TIMEOUT = 8.0
 _CMD_CONNECT_TIMEOUT = 30.0
 
+# After a failed path discovery, do not hammer the companion again for this peer.
+_PATH_DISCOVERY_BACKOFF_SECONDS = 120.0
+
 # BBS-level reconnect when meshcore_py exhausts its own retry budget.
 _RECONNECT_BACKOFF_INITIAL = 1.0
 _RECONNECT_BACKOFF_MAX = 60.0
@@ -68,6 +71,15 @@ class MeshCoreTransport:
         self._poll_task: asyncio.Task | None = None
         self._reconnect_task: asyncio.Task | None = None
         self._path_cache: dict[str, list[str]] = {}
+        self._path_discovery_blocked_until: dict[str, float] = {}
+        self._direct_peers: set[str] = set()
+        self.__radio_lock: asyncio.Lock | None = None
+
+    @property
+    def _radio_lock(self) -> asyncio.Lock:
+        if self.__radio_lock is None:
+            self.__radio_lock = asyncio.Lock()
+        return self.__radio_lock
 
     @property
     def self_pubkey(self) -> str:
@@ -262,7 +274,7 @@ class MeshCoreTransport:
         if res is None:
             log.warning("remove_contact(%s) failed or timed out", pubkey[:8])
 
-    async def resolve_inbound_path(self, pubkey: str) -> list[str]:
+    async def resolve_inbound_path(self, pubkey: str, *, discover: bool = True) -> list[str]:
         """Return the inbound mesh path for *pubkey* (best-effort)."""
         if self._mc is None:
             return []
@@ -271,14 +283,34 @@ class MeshCoreTransport:
         if cached is not None:
             return list(cached)
 
-        path: list[str] = []
-        if self.radio_available:
-            path = await self._discover_inbound_path(pk)
-        if not path:
-            path = _path_from_contact(self._mc, pk)
+        if pk in self._direct_peers:
+            return []
+
+        path = _path_from_contact(self._mc, pk)
         if path:
             self._path_cache[pk] = list(path)
-        return path
+            return path
+
+        if not discover:
+            return []
+
+        blocked_until = self._path_discovery_blocked_until.get(pk, 0.0)
+        if time.time() < blocked_until:
+            return []
+
+        if self.radio_available:
+            path = await self._discover_inbound_path(pk)
+        else:
+            path = []
+
+        if path:
+            self._path_cache[pk] = list(path)
+            return path
+
+        self._path_discovery_blocked_until[pk] = (
+            time.time() + _PATH_DISCOVERY_BACKOFF_SECONDS
+        )
+        return []
 
     async def _discover_inbound_path(self, pubkey: str) -> list[str]:
         """Ask the companion for the inbound route via path discovery."""
@@ -318,14 +350,15 @@ class MeshCoreTransport:
 
     async def _run_mc(self, coro: Any, timeout: float, label: str) -> Any:
         """Run a meshcore command with a hard timeout so the event loop stays responsive."""
-        try:
-            return await asyncio.wait_for(coro, timeout=timeout)
-        except asyncio.TimeoutError:
-            log.warning("%s timed out after %.1fs", label, timeout)
-            return None
-        except Exception as e:
-            log.warning("%s failed: %s", label, e)
-            return None
+        async with self._radio_lock:
+            try:
+                return await asyncio.wait_for(coro, timeout=timeout)
+            except asyncio.TimeoutError:
+                log.warning("%s timed out after %.1fs", label, timeout)
+                return None
+            except Exception as e:
+                log.warning("%s failed: %s", label, e)
+                return None
 
     async def _reconnect_supervisor(self) -> None:
         """Keep trying to restore the companion link after meshcore_py gives up."""
@@ -397,6 +430,8 @@ class MeshCoreTransport:
             hops = 0
         else:
             hops = int(path_len)
+        if hops == 0:
+            self._direct_peers.add(pk.lower())
         path = _extract_path(payload, self._mc)
         if path:
             self._path_cache[pk.lower()] = list(path)
